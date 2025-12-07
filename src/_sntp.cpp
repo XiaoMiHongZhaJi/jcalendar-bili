@@ -1,11 +1,9 @@
 #include "_sntp.h"
-
 #include <WiFi.h>
 #include "esp_sntp.h"
 #include "Arduino.h"
 #include <_preference.h>
 #include <API.hpp>
-
 #include "holiday.h"
 
 TaskHandle_t* _handler;
@@ -15,27 +13,12 @@ int _sntp_status() {
     return _status;
 }
 
-/*
-void time_sync_notification_cb(struct timeval *tv)
-{
-    sntp_stop();
-    status = SYNC_STATUS_OK;
-    if (_handler != NULL)
-    {
-        vTaskDelete(_handler);
-        _handler == NULL;
-    }
-}
-*/
-
 // SNTP 校准时间的任务
 void _sntp_task(void* pvParameter) {
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "ntp.aliyun.com");
-    // sntp_setservername(1, "pool.ntp.org");
     // 设置时区
     setenv("TZ", "CST-8", 1);
-    // sntp_set_time_sync_notification_cb(time_sync_notification_cb); // 回调函数
     sntp_init();
 
     unsigned long begin_millis = millis();

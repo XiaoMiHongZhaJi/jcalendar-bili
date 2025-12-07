@@ -1,33 +1,25 @@
 #include "screen_ink.h"
-
-
 #include <weather.h>
 #include <API.hpp>
 #include "holiday.h"
 #include "nongli.h"
-
-#include "battery.h"
-int voltage;
-
 #include <_preference.h>
-
 #include <U8g2_for_Adafruit_GFX.h>
 #include <GxEPD2_3C.h>
 #include "GxEPD2_display_selection_new_style.h"
-
 #include "font.h"
-#define ROTATION 0
-
+#include "battery.h"
 #include "wiring.h"
+
+#define ROTATION 0
+#define FONT_TEXT u8g2_font_wqy16_t_gb2312 // 224825bytes，最大字库（天气描述中“霾”，只有此字库中有）
+#define FONT_SUB u8g2_font_wqy12_t_gb2312 // 次要字体，u8g2最小字体
+#define FONT_BOLD u8g2_font_helvB12_tf      // 英文粗体
+
 GxEPD2_DISPLAY_CLASS<GxEPD2_DRIVER_CLASS, GxEPD2_DRIVER_CLASS::HEIGHT> display(GxEPD2_DRIVER_CLASS(/*CS=D8*/ SPI_CS, /*DC=D3*/ SPI_DC, /*RST=D4*/ SPI_RST, /*BUSY=D2*/ SPI_BUSY));
 U8G2_FOR_ADAFRUIT_GFX u8g2Fonts;
 
-#define FONT_TEXT u8g2_font_wqy16_t_gb2312 // 224825bytes，最大字库（天气描述中“霾”，只有此字库中有）
-#define FONT_SUB u8g2_font_wqy12_t_gb2312 // 次要字体，u8g2最小字体
 const String week_str[] = { "日", "一", "二", "三", "四", "五", "六" };
-// const String tg_str[] = { "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸" };            // 天干
-// const String dz_str[] = { "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥" }; // 地支
-// const String sx_str[] = { "鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪" }; // 生肖
 const String nl10_str[] = { "初", "十", "廿", "卅" }; // 农历十位
 const String nl_str[] = { "十", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十" }; // 农历个位
 const String nl_mon_str[] = { "", "正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊" }; // 农历首位
@@ -180,12 +172,7 @@ String todayLunarYear;
 String todayLunarDay;
 
 // 更新年份
-void draw_cal_year(bool partial) {
-    if (partial) {
-        display.setPartialWindow(calLayout.topX, calLayout.topY, calLayout.topW + calLayout.tW, calLayout.topH);
-        display.firstPage();
-        display.fillScreen(GxEPD_WHITE);
-    }
+void draw_cal_year() {
 
     // 日期
     u8g2Fonts.setFontMode(1);
@@ -244,21 +231,9 @@ void draw_cal_year(bool partial) {
         u8g2Fonts.setFont(FONT_TEXT);
         u8g2Fonts.print(("星期" + week_str[tmInfo.tm_wday]).c_str());
     }
-
-    // 特殊日期
-    // draw_special_day();
-
-    if (partial) {
-        display.nextPage();
-    }
 }
 
-void draw_cal_days(bool partial) {
-    if (partial) {
-        display.setPartialWindow(calLayout.daysX, calLayout.daysY, calLayout.daysW, calLayout.daysH);
-        display.firstPage();
-        display.fillScreen(GxEPD_WHITE);
-    }
+void draw_cal_days() {
 
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
@@ -481,22 +456,6 @@ void draw_cal_days(bool partial) {
             int iconY = y + 15;
             u8g2Fonts.drawUTF8(iconX, iconY, tagChar);
         }
-
-        // 画Calendar提示点
-        /*
-        Calendar* cal = weather_cal();
-        for(int calIndex = 0; calIndex < cal->length; calIndex ++) {
-            CalEvent event = cal->events[calIndex];
-            if(event.dt_begin.substring(0, 4).toInt() == (tmInfo.tm_year + 1900)
-            && event.dt_begin.substring(4, 6).toInt() == (tmInfo.tm_mon + 1)
-            && event.dt_begin.substring(6, 8).toInt() == (iDay + 1)) {
-                u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-                u8g2Fonts.setForegroundColor(GxEPD_RED);
-                u8g2Fonts.setFont(u8g2_font_siji_t_6x10);
-                u8g2Fonts.drawUTF8(x + 42, y + 12, "\ue015");
-            }
-        }
-        */
     }
 }
 
@@ -527,12 +486,6 @@ void draw_cd_day(String label, String date) {
     someday.tm_sec = 0;
     time_t somedayT = mktime(&someday);
 
-    /*
-    char buffer[80];
-    strftime(buffer, 80, "%Y-%m-%d %H:%M:%S", &someday);
-    Serial.printf("CD day: %s\n", buffer);
-    */
-
     long diff = somedayT - todayT;
     if (diff < 0) return; // 倒计日已过
 
@@ -541,25 +494,20 @@ void draw_cd_day(String label, String date) {
     int16_t y = calLayout.cdDayY;
 
     if (diff == 0) {
-        String prefix = "今日 ";
-        String suffix = " ！！！";
+        const char* prefix = "今日 ";
         u8g2Fonts.setFont(FONT_SUB);
-        int16_t preWidth = u8g2Fonts.getUTF8Width(prefix.c_str());
-        int16_t suffixWidth = u8g2Fonts.getUTF8Width(suffix.c_str());
+        int16_t preWidth = u8g2Fonts.getUTF8Width(prefix);
         u8g2Fonts.setFont(FONT_SUB);
         int16_t labelWidth = u8g2Fonts.getUTF8Width(label.c_str());
-        int16_t margin = (endX - beginX - preWidth - labelWidth - suffixWidth) / 2;
+        int16_t margin = (endX - beginX - preWidth - labelWidth) / 2;
 
         u8g2Fonts.setCursor((margin > 0 ? margin : 0) + beginX, y); // 居中显示
         u8g2Fonts.setForegroundColor(GxEPD_BLACK);
         u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.print(prefix.c_str()); // 今天
+        u8g2Fonts.print(prefix); // 今天
         u8g2Fonts.setForegroundColor(GxEPD_RED);
         u8g2Fonts.setFont(FONT_TEXT);
         u8g2Fonts.print(label.c_str()); // ****
-        u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.print(suffix.c_str()); // ！
     } else if (diff > 0) {
         String prefix = "距 ";
         String middle = " 还有 ";
@@ -595,221 +543,46 @@ void draw_cd_day(String label, String date) {
     }
 }
 
-
-void draw_special_day() {
-    String str = "Special Days!!!";
-
-    u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 12, u8g2Fonts.getCursorY());
-    u8g2Fonts.setForegroundColor(GxEPD_RED);
-    u8g2Fonts.setFont(u8g2_font_open_iconic_all_2x_t);
-    u8g2Fonts.print("\u00b7"); // 爱心
-    u8g2Fonts.setFont(FONT_TEXT);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-    u8g2Fonts.print(str.c_str());
-    u8g2Fonts.setForegroundColor(GxEPD_RED);
-    u8g2Fonts.setFont(u8g2_font_open_iconic_all_2x_t);
-    u8g2Fonts.print("\u00b7"); // 爱心
-}
-
-bool isNight(String time) {
-    uint8_t hour = time.substring(11, 13).toInt();
-    return hour < 6 || hour >= 18;
-}
-
-const char* getWeatherIcon(uint16_t id, bool fill) {
-    switch (id) {
-    case 100: return !fill ? "\uf101" : "\uf1ac";
-    case 101: return !fill ? "\uf102" : "\uf1ad";
-    case 102: return !fill ? "\uf103" : "\uf1ae";
-    case 103: return !fill ? "\uf104" : "\uf1af";
-    case 104: return !fill ? "\uf105" : "\uf1b0";
-    case 150: return !fill ? "\uf106" : "\uf1b1";
-    case 151: return !fill ? "\uf107" : "\uf1b2";
-    case 152: return !fill ? "\uf108" : "\uf1b3";
-    case 153: return !fill ? "\uf109" : "\uf1b4";
-    case 300: return !fill ? "\uf10a" : "\uf1b5";
-    case 301: return !fill ? "\uf10b" : "\uf1b6";
-    case 302: return !fill ? "\uf10c" : "\uf1b7";
-    case 303: return !fill ? "\uf10d" : "\uf1b8";
-    case 304: return !fill ? "\uf10e" : "\uf1b9";
-    case 305: return !fill ? "\uf10f" : "\uf1ba";
-    case 306: return !fill ? "\uf110" : "\uf1bb";
-    case 307: return !fill ? "\uf111" : "\uf1bc";
-    case 308: return !fill ? "\uf112" : "\uf1bd";
-    case 309: return !fill ? "\uf113" : "\uf1be";
-    case 310: return !fill ? "\uf114" : "\uf1bf";
-    case 311: return !fill ? "\uf115" : "\uf1c0";
-    case 312: return !fill ? "\uf116" : "\uf1c1";
-    case 313: return !fill ? "\uf117" : "\uf1c2";
-    case 314: return !fill ? "\uf118" : "\uf1c3";
-    case 315: return !fill ? "\uf119" : "\uf1c4";
-    case 316: return !fill ? "\uf11a" : "\uf1c5";
-    case 317: return !fill ? "\uf11b" : "\uf1c6";
-    case 318: return !fill ? "\uf11c" : "\uf1c7";
-    case 350: return !fill ? "\uf11d" : "\uf1c8";
-    case 351: return !fill ? "\uf11e" : "\uf1c9";
-    case 399: return !fill ? "\uf11f" : "\uf1ca";
-    case 400: return !fill ? "\uf120" : "\uf1cb";
-    case 401: return !fill ? "\uf121" : "\uf1cc";
-    case 402: return !fill ? "\uf122" : "\uf1cd";
-    case 403: return !fill ? "\uf123" : "\uf1ce";
-    case 404: return !fill ? "\uf124" : "\uf1cf";
-    case 405: return !fill ? "\uf125" : "\uf1d0";
-    case 406: return !fill ? "\uf126" : "\uf1d1";
-    case 407: return !fill ? "\uf127" : "\uf1d2";
-    case 408: return !fill ? "\uf128" : "\uf1d3";
-    case 409: return !fill ? "\uf129" : "\uf1d4";
-    case 410: return !fill ? "\uf12a" : "\uf1d5";
-    case 456: return !fill ? "\uf12b" : "\uf1d6";
-    case 457: return !fill ? "\uf12c" : "\uf1d7";
-    case 499: return !fill ? "\uf12d" : "\uf1d8";
-    case 500: return !fill ? "\uf12e" : "\uf1d9";
-    case 501: return !fill ? "\uf12f" : "\uf1da";
-    case 502: return !fill ? "\uf130" : "\uf1db";
-    case 503: return !fill ? "\uf131" : "\uf1dc";
-    case 504: return !fill ? "\uf132" : "\uf1dd";
-    case 507: return !fill ? "\uf133" : "\uf1de";
-    case 508: return !fill ? "\uf134" : "\uf1df";
-    case 509: return !fill ? "\uf135" : "\uf1e0";
-    case 510: return !fill ? "\uf136" : "\uf1e1";
-    case 511: return !fill ? "\uf137" : "\uf1e2";
-    case 512: return !fill ? "\uf138" : "\uf1e3";
-    case 513: return !fill ? "\uf139" : "\uf1e4";
-    case 514: return !fill ? "\uf13a" : "\uf1e5";
-    case 515: return !fill ? "\uf13b" : "\uf1e6";
-    case 800: return "\uf13c";
-    case 801: return "\uf13d";
-    case 802: return "\uf13e";
-    case 803: return "\uf13f";
-    case 804: return "\uf140";
-    case 805: return "\uf141";
-    case 806: return "\uf142";
-    case 807: return "\uf143";
-    case 900: return !fill ? "\uf144" : "\uf1e7";
-    case 901: return !fill ? "\uf145" : "\uf1e8";
-    case 999:
-    default: return !fill ? "\uf146" : "\uf1e9";
-    }
-}
-
 // 画天气信息
 #include "API.hpp"
-void draw_weather(bool partial) {
-    if (partial) {
-        display.setPartialWindow(calLayout.weatherX, calLayout.weatherY, calLayout.weatherW, calLayout.weatherH - 1); // 高度减1，防止干扰到其他区域颜色
-        display.firstPage();
-        display.fillScreen(GxEPD_WHITE);
-    }
+void draw_weather() {
 
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
     u8g2Fonts.setForegroundColor(GxEPD_BLACK);
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-    if (weather_type() == 1) {
-        // 实时天气
-        Weather* wNow = weather_data_now();
-        /* 更新排版，将字体缩小，与每日天气风格一致
-        // 天气图标
-        u8g2Fonts.setFont(u8g2_font_qweather_icon_16);
-        u8g2Fonts.setCursor(calLayout.weatherX + 2, calLayout.weatherY + 30);
-        u8g2Fonts.print(getWeatherIcon(wNow->icon, isNight(wNow->time)));
+    // 实时天气
+    Weather* wNow = weather_data_now();
+    
+    // 天气图标
+    u8g2Fonts.setFont(u8g2_font_qweather_icon_16);
+    u8g2Fonts.setCursor(calLayout.weatherX, calLayout.weatherY + 44);
+    u8g2Fonts.print(wNow->icon);
 
-        // 天气文字
-        u8g2Fonts.setFont(FONT_TEXT);
-        uint16_t w1 = u8g2Fonts.getUTF8Width(wNow->text.c_str());
-        u8g2Fonts.setCursor(calLayout.weatherX + 30, calLayout.weatherY + 18);
-        u8g2Fonts.print((wNow->text).c_str());
+    // 天气文字
+    u8g2Fonts.setFont(FONT_SUB);
+    uint16_t w1 = u8g2Fonts.getUTF8Width(wNow->text);
+    u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 22);
+    u8g2Fonts.print(wNow->text);
 
-        // 温湿度
-        u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2Fonts.setCursor(calLayout.weatherX + 30, calLayout.weatherY + 35);
-        u8g2Fonts.printf("%d°C | %d%%", wNow->temp, wNow->humidity);
+    u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
+    u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 37);
+    u8g2Fonts.printf("%s°C | %s%%", wNow->temp, wNow->humidity);
 
-        // 风向级别
-        u8g2Fonts.setCursor(calLayout.weatherX, calLayout.weatherY + calLayout.weatherH - 6);
-        u8g2Fonts.setFont(FONT_TEXT);
-        u8g2Fonts.printf("%s", wNow->windDir.c_str());
-        u8g2Fonts.setFont(u8g2_font_fub14_tn);
-        u8g2Fonts.printf(" %d ", wNow->windScale);
-        u8g2Fonts.setFont(FONT_TEXT);
-        u8g2Fonts.printf("级");
-        */
-        // 天气图标
-        u8g2Fonts.setFont(u8g2_font_qweather_icon_16);
-        u8g2Fonts.setCursor(calLayout.weatherX, calLayout.weatherY + 44);
-        u8g2Fonts.print(getWeatherIcon(wNow->icon, isNight(wNow->time)));
-
-        // 天气文字
-        u8g2Fonts.setFont(FONT_SUB);
-        uint16_t w1 = u8g2Fonts.getUTF8Width(wNow->text.c_str());
-        u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 22);
-        u8g2Fonts.print(wNow->text.c_str());
-
-        u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 37);
-        u8g2Fonts.printf("%d°C | %d%%", wNow->temp, wNow->humidity);
-
-        // 风向级别
-        u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + calLayout.weatherH - 6);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.printf("%s", wNow->windDir.c_str());
-        u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, u8g2Fonts.getCursorY());
-        u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2Fonts.printf("%d", wNow->windScale);
-        u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, u8g2Fonts.getCursorY());
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.printf("级");
-    } else {
-        // 每日天气
-        DailyForecast* wFc = weather_data_daily();
-        DailyWeather* dw = wFc->weather;
-        if (wFc->length == 0) {
-            return;
-        }
-        DailyWeather wToday = dw[0];
-
-        // 天气图标
-        u8g2Fonts.setFont(u8g2_font_qweather_icon_16);
-        u8g2Fonts.setCursor(calLayout.weatherX, calLayout.weatherY + 44);
-        u8g2Fonts.print(getWeatherIcon(wToday.iconDay, false));
-
-        // 天气文字
-        u8g2Fonts.setFont(FONT_SUB);
-        uint16_t w1 = u8g2Fonts.getUTF8Width(wToday.textDay.c_str());
-        u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 22);
-        u8g2Fonts.print((wToday.textDay).c_str());
-
-        u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, calLayout.weatherY + 22);
-        u8g2Fonts.printf("%d%%", wToday.humidity);
-
-        // 温度
-        u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 37);
-        u8g2Fonts.printf("%d - %d°C", wToday.tempMin, wToday.tempMax);
-
-        // 风向级别
-        u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + calLayout.weatherH - 6);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.printf("%s", wToday.windDirDay.c_str());
-        u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2Fonts.printf(" %d ", wToday.windScaleDay);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.printf("级");
-    }
-
-    if (partial) {
-        display.nextPage();
-    }
+    // 风向级别
+    u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + calLayout.weatherH - 6);
+    u8g2Fonts.setFont(FONT_SUB);
+    u8g2Fonts.printf("%s", wNow->windDir);
+    u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, u8g2Fonts.getCursorY());
+    u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
+    u8g2Fonts.printf("%s", wNow->windScale);
+    u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, u8g2Fonts.getCursorY());
+    u8g2Fonts.setFont(FONT_SUB);
+    u8g2Fonts.printf("级");
 }
 
 // Draw err
-void draw_err(bool partial) {
-    if (partial) {
-        display.setPartialWindow(380, 0, 20, 20);
-        display.firstPage();
-        display.fillScreen(GxEPD_WHITE);
-    }
+void draw_err() {
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
@@ -817,18 +590,10 @@ void draw_err(bool partial) {
     u8g2Fonts.setFont(u8g2_font_open_iconic_all_2x_t);
     u8g2Fonts.setCursor(382, 18);
     u8g2Fonts.print("\u0118");
-
-    if (partial) {
-        display.nextPage();
-    }
 }
 
-void draw_status(bool partial) {
-    if (partial) {
-        display.setPartialWindow(calLayout.statusX, calLayout.statusY, calLayout.statusW, calLayout.statusH);
-        display.firstPage();
-        display.fillScreen(GxEPD_WHITE);
-    }
+void draw_battery(int voltage) {
+
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
@@ -836,7 +601,7 @@ void draw_status(bool partial) {
     u8g2Fonts.setFont(u8g2_font_siji_t_6x10);
 
     // 电池icon
-    String iconStr = "";
+    const char* iconStr = "";
     if(voltage >= 4100) { // 满电
         iconStr = "\ue24b";
     } else if (voltage >= 3900) { // 多电
@@ -848,11 +613,7 @@ void draw_status(bool partial) {
     } else { // 空
         iconStr = "\ue242";
     }
-    u8g2Fonts.drawUTF8(400 - 12 - 4, 10, iconStr.c_str());
-
-    if (partial) {
-        display.nextPage();
-    }
+    u8g2Fonts.drawUTF8(400 - 12 - 4, 14, iconStr);
 }
 
 void drawStudySchedule() {
@@ -976,7 +737,7 @@ void si_calendar() {
     _cd_day_label = pref.getString(PREF_CD_DAY_LABLE);
     _cd_day_date = pref.getString(PREF_CD_DAY_DATE);
     _tag_days_str = pref.getString(PREF_TAG_DAYS);
-    _week_1st = pref.getString(PREF_SI_WEEK_1ST, "0").toInt();
+    _week_1st = 1; // 1:星期一作为每周第一天 0:星期天作为每周第一天
     _study_schedule = pref.getString(PREF_STUDY_SCHEDULE);
     _si_type = pref.getInt(PREF_SI_TYPE);
     if (_study_schedule.isEmpty()) _si_type = 0;
@@ -995,13 +756,7 @@ void si_calendar() {
             // 尝试使用api获取的时间
             String apiTime;
             Weather* weatherNow = weather_data_now();
-            if (weatherNow->updateTime == NULL) {
-                // TODO 处理每日天气
-                DailyForecast* wFc = weather_data_daily();
-                apiTime = wFc->updateTime;
-            } else {
-                apiTime = weatherNow->updateTime;
-            }
+            apiTime = weatherNow->updateTime;
             Serial.printf("API Time: %s\n", apiTime.c_str());
             tmInfo = { 0 }; // 重置为0
             if (strptime(apiTime.c_str(), "%Y-%m-%dT%H:%M", &tmInfo) != NULL) {  // 将时间字符串转成tm时间 e.g. 2024-11-14T17:36+08:00
@@ -1045,7 +800,8 @@ int si_calendar_status() {
 void task_screen(void* param) {
     Serial.println("[Task] screen update begin...");
 
-    voltage = readBatteryVoltage();
+    
+    int voltage = readBatteryVoltage();
 
     delay(100);
 
@@ -1061,20 +817,20 @@ void task_screen(void* param) {
         if (_si_type == 1) {
             drawStudySchedule();
         } else {
-            draw_cal_days(false);
+            draw_cal_days();
             draw_cal_header();
         }
 
-        draw_cal_year(false);
+        draw_cal_year();
 
         // 倒计日
         draw_cd_day(_cd_day_label, _cd_day_date);
 
         if (weather_status() == 1) {
-            draw_weather(false);
+            draw_weather();
         }
         if (voltage > 1000 && voltage < 4300) {
-            draw_status(false);
+            draw_battery(voltage);
         }
     } while (display.nextPage());
 
@@ -1113,14 +869,6 @@ void si_screen() {
 int si_screen_status() {
     return _screen_status;
 }
-
-void print_status() {
-    Serial.printf("Weather: %d\n", weather_status());
-    Serial.printf("Calendar: %d\n", si_calendar_status());
-    Serial.printf("Screen: %d\n", si_screen_status());
-}
-
-
 
 void si_warning(const char* str) {
     Serial.println("Screen warning...");
