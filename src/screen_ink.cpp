@@ -1,5 +1,5 @@
 #include "screen_ink.h"
-#include <weather.h>
+#include <api_info.h>
 #include <API.hpp>
 #include "holiday.h"
 #include "nongli.h"
@@ -25,11 +25,8 @@ const String nl_str[] = { "十", "一", "二", "三", "四", "五", "六", "七"
 const String nl_mon_str[] = { "", "正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊" }; // 农历首位
 
 int _screen_status = -1;
-int _calendar_status = -1;
-String _cd_day_label;
-String _cd_day_date;
-String _tag_days_str;
-int _week_1st;
+String _tag_days_str = "00000005b";
+int _week_1st = 1;
 int lunarDates[31];
 int jqAccDate[24]; // 节气积累日
 
@@ -37,106 +34,42 @@ const int jrLength = 11;
 const int jrDate[] = { 101, 214, 308, 312, 501, 504, 601, 701, 801, 910, 1001, 1224, 1225 };
 const String jrText[] = { "元旦", "情人节", "妇女节", "植树节", "劳动节", "青年节", "儿童节", "建党节", "建军节", "教师节", "国庆节", "平安夜", "圣诞节" };
 
-int _si_type = 0;
-String _study_schedule;
+int _screen_index = 0;
 
 
 struct tm tmInfo = { 0 }; // 日历显示用的时间
 
 struct
 {
-    int16_t topX;
-    int16_t topY;
-    int16_t topW;
     int16_t topH;
-
-    int16_t tX;
-    int16_t tY;
-    int16_t tW;
-    int16_t tH;
 
     int16_t yearX;
     int16_t yearY;
-    int16_t weekX;
-    int16_t weekY;
-
-    int16_t lunarYearX;
-    int16_t lunarYearY;
-    int16_t lunarDayX;
-    int16_t lunarDayY;
-    int16_t cdDayX;
-    int16_t cdDayY;
-
-    int16_t statusX;
-    int16_t statusY;
-    int16_t statusW;
-    int16_t statusH;
-
-    int16_t weatherX;
-    int16_t weatherY;
-    int16_t weatherW;
-    int16_t weatherH;
 
     int16_t headerX;
     int16_t headerY;
-    int16_t headerW;
     int16_t headerH;
 
     int16_t daysX;
     int16_t daysY;
-    int16_t daysW;
-    int16_t daysH;
     int16_t dayW;
-    int16_t dayH;
 } static calLayout;
 
 TaskHandle_t SCREEN_HANDLER;
 
 void init_cal_layout_size() {
-    calLayout.topX = 0;
-    calLayout.topY = 0;
-    calLayout.topW = 180;
     calLayout.topH = 60;
 
     calLayout.yearX = 10;
     calLayout.yearY = calLayout.topH - 28;
-    calLayout.weekX = 10;
-    calLayout.weekY = calLayout.topH - 5;
 
-    calLayout.lunarYearX = calLayout.topX + calLayout.topW + 15;
-    calLayout.lunarYearY = calLayout.yearY / 2;
-    calLayout.lunarDayX = calLayout.topX + calLayout.topW + 15;
-    calLayout.lunarDayY = calLayout.yearY;
-
-    calLayout.cdDayX = 0;
-    calLayout.cdDayY = calLayout.topH - 5;
-
-    calLayout.tX = calLayout.topX + calLayout.topW;
-    calLayout.tY = calLayout.topY;
-    calLayout.tW = 60;
-    calLayout.tH = calLayout.topH / 2;
-
-    calLayout.statusX = 300;
-    calLayout.statusY = 0;
-    calLayout.statusW = display.width() - calLayout.weatherX;
-    calLayout.statusH = 14;
-
-    calLayout.weatherX = 300;
-    calLayout.weatherY = calLayout.topY;
-    calLayout.weatherW = display.width() - calLayout.weatherX;
-    calLayout.weatherH = calLayout.topH;
-
-    calLayout.headerX = calLayout.topX;
-    calLayout.headerY = calLayout.topY + calLayout.topH;
-    calLayout.headerW = display.width();
+    calLayout.headerX = 0;
+    calLayout.headerY = calLayout.topH;
     calLayout.headerH = 20;
 
-    calLayout.daysX = calLayout.topX;
+    calLayout.daysX = 0;
     calLayout.daysY = calLayout.headerY + calLayout.headerH;
-    calLayout.daysW = calLayout.headerW;
-    calLayout.daysH = display.height() - calLayout.daysX;
     calLayout.dayW = 56;
-    calLayout.dayH = 44;
 }
 
 void draw_cal_header() {
@@ -197,40 +130,6 @@ void draw_cal_year() {
     u8g2Fonts.setFont(FONT_TEXT);
     u8g2Fonts.setForegroundColor(GxEPD_BLACK);
     u8g2Fonts.print("日");
-
-    calLayout.lunarYearX = u8g2Fonts.getCursorX() + 10;
-    calLayout.lunarDayX = u8g2Fonts.getCursorX() + 10;
-
-    // 第几周
-    u8g2Fonts.setFont(FONT_TEXT);
-    u8g2Fonts.setFontMode(1);
-    u8g2Fonts.setFontDirection(0);
-    u8g2Fonts.setForegroundColor(todayColor);
-    u8g2Fonts.setCursor(calLayout.weekX, calLayout.weekY);
-    char week_num[8];
-    strftime(week_num, sizeof(week_num), "%V", &tmInfo); // 国际标准（ISO 8601）‌：以周一作为每周起始日
-    u8g2Fonts.printf("第%s周", week_num);
-    calLayout.cdDayX = u8g2Fonts.getCursorX(); // update cd day X;
-
-    // 今日农历年份，e.g. 乙巳年 蛇
-    // 如果农历月份小于公历月份，那么说明是上一年
-    u8g2Fonts.setCursor(calLayout.lunarYearX, calLayout.lunarYearY);
-    u8g2Fonts.setFont(FONT_SUB);
-    u8g2Fonts.setFontMode(1);
-    u8g2Fonts.setFontDirection(0);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-    u8g2Fonts.print(todayLunarYear);
-
-    // 今日农历日期
-    u8g2Fonts.setCursor(calLayout.lunarDayX, calLayout.lunarDayY);
-    u8g2Fonts.setFont(FONT_SUB);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-    if (!todayLunarDay.isEmpty()) {
-        u8g2Fonts.print(todayLunarDay);
-    } else {
-        u8g2Fonts.setFont(FONT_TEXT);
-        u8g2Fonts.print(("星期" + week_str[tmInfo.tm_wday]).c_str());
-    }
 }
 
 void draw_cal_days() {
@@ -459,90 +358,6 @@ void draw_cal_days() {
     }
 }
 
-// draw countdown-day info
-void draw_cd_day(String label, String date) {
-    if (label == NULL || date == NULL || label.length() == 0 || date.length() != 8) {
-        Serial.print("Invalid countdown-day parameters.\n");
-        return;
-    }
-
-    long d = atol(date.c_str());
-
-    struct tm today = { 0 }; // 今日0秒
-    today.tm_year = tmInfo.tm_year;
-    today.tm_mon = tmInfo.tm_mon;
-    today.tm_mday = tmInfo.tm_mday;
-    today.tm_hour = 0;
-    today.tm_min = 0;
-    today.tm_sec = 0;
-    time_t todayT = mktime(&today);
-
-    struct tm someday = { 0 }; // 倒计日0秒
-    someday.tm_year = d / 10000 - 1900;
-    someday.tm_mon = d % 10000 / 100 - 1;
-    someday.tm_mday = d % 100;
-    someday.tm_hour = 0;
-    someday.tm_min = 0;
-    someday.tm_sec = 0;
-    time_t somedayT = mktime(&someday);
-
-    long diff = somedayT - todayT;
-    if (diff < 0) return; // 倒计日已过
-
-    int16_t beginX = calLayout.cdDayX;
-    int16_t endX = calLayout.weatherX;
-    int16_t y = calLayout.cdDayY;
-
-    if (diff == 0) {
-        const char* prefix = "今日 ";
-        u8g2Fonts.setFont(FONT_SUB);
-        int16_t preWidth = u8g2Fonts.getUTF8Width(prefix);
-        u8g2Fonts.setFont(FONT_SUB);
-        int16_t labelWidth = u8g2Fonts.getUTF8Width(label.c_str());
-        int16_t margin = (endX - beginX - preWidth - labelWidth) / 2;
-
-        u8g2Fonts.setCursor((margin > 0 ? margin : 0) + beginX, y); // 居中显示
-        u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.print(prefix); // 今天
-        u8g2Fonts.setForegroundColor(GxEPD_RED);
-        u8g2Fonts.setFont(FONT_TEXT);
-        u8g2Fonts.print(label.c_str()); // ****
-    } else if (diff > 0) {
-        String prefix = "距 ";
-        String middle = " 还有 ";
-        int iDiff = diff / (60 * 60 * 24);
-        char days[11] = "";
-        itoa(iDiff, days, 10);
-        String suffix = " 天";
-
-        u8g2Fonts.setFont(FONT_SUB);
-        int16_t preWidth = u8g2Fonts.getUTF8Width(prefix.c_str());
-        int16_t midWidth = u8g2Fonts.getUTF8Width(middle.c_str());
-        int16_t suffixWidth = u8g2Fonts.getUTF8Width(suffix.c_str());
-        u8g2Fonts.setFont(FONT_SUB);
-        int16_t labelWidth = u8g2Fonts.getUTF8Width(label.c_str());
-        u8g2Fonts.setFont(u8g2_font_fub14_tn);
-        int16_t daysWidth = u8g2Fonts.getUTF8Width(days);
-        int16_t margin = (endX - beginX - preWidth - labelWidth - midWidth - daysWidth - suffixWidth) / 2;
-
-        u8g2Fonts.setCursor((margin > 0 ? margin : 0) + beginX, y); // 居中显示
-        u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.print(prefix.c_str()); // 距
-        u8g2Fonts.setFont(FONT_TEXT);
-        u8g2Fonts.print(label.c_str()); // ****
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.print(middle.c_str()); // 还有
-        u8g2Fonts.setForegroundColor(GxEPD_RED);
-        u8g2Fonts.setFont(u8g2_font_fub14_tn);
-        u8g2Fonts.print(days); // 0000
-        u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-        u8g2Fonts.setFont(FONT_SUB);
-        u8g2Fonts.print(suffix.c_str()); // 天
-    }
-}
-
 // 画天气信息
 #include "API.hpp"
 void draw_weather() {
@@ -552,44 +367,35 @@ void draw_weather() {
     u8g2Fonts.setForegroundColor(GxEPD_BLACK);
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
     // 实时天气
-    Weather* wNow = weather_data_now();
+    Weather* wNow = weather_data();
     
     // 天气图标
     u8g2Fonts.setFont(u8g2_font_qweather_icon_16);
-    u8g2Fonts.setCursor(calLayout.weatherX, calLayout.weatherY + 44);
+    u8g2Fonts.setCursor(10, 59);
     u8g2Fonts.print(wNow->icon);
 
-    // 天气文字
+    // 天气描述+温度+湿度
+    String wind = String(wNow->windDir) + String(wNow->windScale) + "级";
+    if (wNow->windScale[0] == '0') {
+        wind = "无风";
+    }
     u8g2Fonts.setFont(FONT_SUB);
-    uint16_t w1 = u8g2Fonts.getUTF8Width(wNow->text);
-    u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 22);
-    u8g2Fonts.print(wNow->text);
-
-    u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-    u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + 37);
-    u8g2Fonts.printf("%s°C | %s%%", wNow->temp, wNow->humidity);
-
-    // 风向级别
-    u8g2Fonts.setCursor(calLayout.weatherX + 28, calLayout.weatherY + calLayout.weatherH - 6);
-    u8g2Fonts.setFont(FONT_SUB);
-    u8g2Fonts.printf("%s", wNow->windDir);
-    u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, u8g2Fonts.getCursorY());
-    u8g2Fonts.setFont(u8g2_font_tenthinnerguys_tf);
-    u8g2Fonts.printf("%s", wNow->windScale);
-    u8g2Fonts.setCursor(u8g2Fonts.getCursorX() + 5, u8g2Fonts.getCursorY());
-    u8g2Fonts.setFont(FONT_SUB);
-    u8g2Fonts.printf("级");
+    u8g2Fonts.setCursor(40, 55);
+    u8g2Fonts.printf("%s %s°C | %s%% %s", wNow->text, wNow->temp, wNow->humidity, wind.c_str());
 }
 
 // Draw err
-void draw_err() {
+void draw_err(const char* errMsg) {
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
     u8g2Fonts.setForegroundColor(GxEPD_RED);
     u8g2Fonts.setFont(u8g2_font_open_iconic_all_2x_t);
-    u8g2Fonts.setCursor(382, 18);
-    u8g2Fonts.print("\u0118");
+    u8g2Fonts.setCursor(10, 55);
+    u8g2Fonts.print("\u0118"); // error icon
+    u8g2Fonts.setFont(FONT_SUB);
+    u8g2Fonts.setCursor(30, 55);
+    u8g2Fonts.print(errMsg);
 }
 
 void draw_battery(int voltage) {
@@ -616,133 +422,210 @@ void draw_battery(int voltage) {
     u8g2Fonts.drawUTF8(400 - 12 - 4, 14, iconStr);
 }
 
-void drawStudySchedule() {
-    int i = _study_schedule.substring(0, 3).toInt();
-    Serial.printf("%d\r\n", i);
-    int morningClassCount = i / 100;
-    int eveningClassCount = (i % 100) / 10;
-    int nightClassCount = i % 10;
-    int segmentCount = (morningClassCount > 0 ? 1 : 0) + (eveningClassCount > 0 ? 1 : 0) + (nightClassCount > 0 ? 1 : 0);
-    String daysClassStr[7];
-    int pos_begin = 4;
-    int daysCount = 0;
-    do {
-        int pos_end = _study_schedule.indexOf(";", pos_begin);
-        if (pos_end < 0) break;
+// 横向虚线
+void drawDashedHLine(int x, int y, int width, int dashLen = 5, int gapLen = 3, int color = GxEPD_BLACK) {
+    int pos = 0;
+    while (pos < width) {
+        int w = min(dashLen, width - pos);
+        display.drawFastHLine(x + pos, y, w, color);
+        pos += dashLen + gapLen;
+    }
+}
 
-        String str = _study_schedule.substring(pos_begin, pos_end);
-        str.trim();
-        daysClassStr[daysCount++] = str;
-        // Serial.printf("%d : %d : %s\r\n", daysCount, pos_end, str.c_str());
-        pos_begin = pos_end + 1;
-    } while (true);
+// 纵向虚线
+void drawDashedVLine(int x, int y, int height, int dashLen = 5, int gapLen = 3) {
+    int pos = 0;
+    while (pos < height) {
+        int h = min(dashLen, height - pos);
+        display.drawFastVLine(x, y + pos, h, GxEPD_BLACK);
+        pos += dashLen + gapLen;
+    }
+}
 
-    // 计算Cell尺寸
-    int cellHeight = (display.height() - calLayout.topH - calLayout.headerH - segmentCount * 2) / (morningClassCount + eveningClassCount + nightClassCount);
-    int cellWidth = display.width() / daysCount;
-    int marginLeft = (display.width() - cellWidth * daysCount) / 2;
+const int title_height = 80;
 
-    // cell line
-    display.drawFastHLine(0, calLayout.topH, display.width(), GxEPD_RED);
-    display.drawFastHLine(0, calLayout.topH - 1, display.width(), GxEPD_RED);
-    display.drawFastHLine(0, calLayout.topH + calLayout.headerH - 1, display.width(), GxEPD_RED);
-    display.drawFastHLine(0, calLayout.topH + calLayout.headerH, display.width(), GxEPD_RED);
-    int segmentIndex = 0;
-    uint16_t max_y = calLayout.topH + calLayout.headerH; // 水平分割线
-    for (int x = 1; x <= morningClassCount; x++) {
-        max_y += cellHeight;
-        display.drawFastHLine(0, max_y, display.width(), GxEPD_BLACK);
-    }
-    if (eveningClassCount > 0) {
-        max_y += 2;
-        display.drawFastHLine(0, max_y, display.width(), GxEPD_BLACK);
-    }
-    for (int x = 1; x <= eveningClassCount; x++) {
-        max_y += cellHeight;
-        display.drawFastHLine(0, max_y, display.width(), GxEPD_BLACK);
-    }
-    if (nightClassCount > 0) {
-        max_y += 2;
-        display.drawFastHLine(0, max_y, display.width(), GxEPD_BLACK);
-    }
-    for (int x = 1; x <= nightClassCount; x++) {
-        max_y += cellHeight;
-        display.drawFastHLine(0, max_y, display.width(), GxEPD_BLACK);
-    }
-    for (int x = 1; x < daysCount; x++) { // 垂直分割线
-        display.drawFastVLine(cellWidth * x, calLayout.headerH + calLayout.topH, max_y - calLayout.headerH - calLayout.topH, GxEPD_BLACK);
+int cellW = display.width() / 2;   // 2列
+int cellH = (display.height() - title_height) / 3;  // 3行
+
+boolean drawEnglishWords(int screen_index) {
+    
+    // drawDashedHLine(0, title_height - 20, display.width(), GxEPD_RED);
+    // drawDashedHLine(0, title_height, display.width(), GxEPD_RED);
+
+    display.fillRect(0, 60, display.width(), 20, GxEPD_BLACK);
+
+    drawDashedHLine(0, cellH + title_height, display.width());
+    drawDashedHLine(0, cellH * 2 + title_height, display.width());
+    drawDashedVLine(cellW, title_height, display.height() + title_height);
+
+    u8g2Fonts.setFont(FONT_TEXT);
+    u8g2Fonts.setBackgroundColor(GxEPD_BLACK);
+    u8g2Fonts.setForegroundColor(GxEPD_WHITE);
+
+    int word_index = (screen_index - 1) / 2 * 6;
+    std::vector<Word> words = daily_words();
+    if (words.size() < word_index + 6) {
+        Serial.println("ERR: words size less than " + String(word_index + 6));
+        const char* title = "单词数据异常";
+        int titleWidth = u8g2Fonts.getUTF8Width(title);
+        int titleTx = (display.width() - titleWidth) / 2;
+        u8g2Fonts.drawUTF8(titleTx, title_height - 4, title);
+        return false;
     }
 
-    for (int x = 0; x < daysCount; x++) {
-        // Serial.println(daysClassStr[x].c_str());
-        int pos_begin = 0;
-        int yStep = 0;
-        int segmentIndex = 0;
+    const char* title = "英语六级练习，20秒后揭晓答案...";
+    u8g2Fonts.setFont(FONT_TEXT);
+    int titleWidth = u8g2Fonts.getUTF8Width(title);
+    int titleTx = (display.width() - titleWidth) / 2;
+    u8g2Fonts.drawUTF8(titleTx, title_height - 4, title);
 
+    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    for (int i = 0; i < 6; i++) {
+        int row = i % 3;
+        int col = i / 3;
+        int x0 = col * cellW;
+        int y0 = row * cellH + title_height;
 
-        uint16_t fontColor = GxEPD_BLACK;
-        do {
-            int pos_end = daysClassStr[x].indexOf(",", pos_begin);
-            String ss = daysClassStr[x].substring(pos_begin, pos_end);
-            ss.trim();
-            // Serial.printf("%s\r\n", ss.c_str());
-            if (yStep == 0) {
-                if (week_str[tmInfo.tm_wday] == ss) {
-                    display.fillRect(cellWidth * x + marginLeft, calLayout.topH, cellWidth, calLayout.headerH, GxEPD_RED);
-                    fontColor = GxEPD_RED;
-                    u8g2Fonts.setBackgroundColor(GxEPD_RED);
-                    u8g2Fonts.setForegroundColor(GxEPD_WHITE);
-                } else {
-                    fontColor = GxEPD_BLACK;
-                    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-                    u8g2Fonts.setForegroundColor(fontColor);
-                }
-                u8g2Fonts.setFont(FONT_TEXT);
-                u8g2Fonts.drawUTF8(cellWidth * x + marginLeft + (cellWidth - u8g2Fonts.getUTF8Width(ss.c_str())) / 2, calLayout.topH + calLayout.headerH - 4, ss.c_str());
-            } else if (yStep > 0) {
-                if (yStep == morningClassCount + 1 || yStep == (morningClassCount + eveningClassCount + 1)) {
-                    segmentIndex++;
-                }
-                u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-                u8g2Fonts.setForegroundColor(fontColor);
-                int fontHeight = 12;
-                if (cellHeight < 18) {
-                    u8g2Fonts.setFont(FONT_SUB);
-                    fontHeight = 12;
-                } else {
-                    u8g2Fonts.setFont(FONT_TEXT);
-                    fontHeight = 16;
-                }
-                u8g2Fonts.drawUTF8(cellWidth * x + marginLeft + (cellWidth - u8g2Fonts.getUTF8Width(ss.c_str())) / 2, calLayout.topH + calLayout.headerH + cellHeight * yStep - 1 - (cellHeight - 1 - fontHeight) / 2 + 2 * segmentIndex, ss.c_str());
+        const char* en = words[word_index + i].en.c_str();
+        const char* ch = words[word_index + i].ch.c_str();
+
+        // 英文
+        int len = strlen(en);
+        char underline[len * 2];
+        int space_index = 0;
+        for (int i = 0; i < len; i++) {
+            if (en[i] == ' ') {
+                space_index = i;
+                underline[i * 2] = ' ';
+                underline[(i - 1) * 2] = en[i - 1];
+            } else {
+                underline[i * 2] = '_';
             }
+            underline[i * 2 + 1] = ' ';
+        }
+        if (space_index > 0) {
+            underline[(space_index + 1) * 2] = en[space_index + 1];
+        }
+        underline[0] = en[0];
+        underline[(len - 1) * 2] = en[len - 1];
+        underline[len * 2 - 1] = '\0';
+        u8g2Fonts.setFont(FONT_BOLD);
+        int twEng = u8g2Fonts.getUTF8Width(underline);
+        int txEng = x0 + (cellW - twEng) / 2;
+        int tyEng = y0 + cellH / 2 - 6;
+        if (txEng < x0 + 2) {
+            txEng = x0 + 2;
+        }
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.drawUTF8(txEng, tyEng, underline);
 
-            if (pos_end < 0) break;
-            pos_begin = pos_end + 1;
-            yStep++;
-        } while (true);
+        // 中文
+        u8g2Fonts.setFont(FONT_TEXT);
+        int twChi = u8g2Fonts.getUTF8Width(ch);
+        if (twChi > cellW) {
+            u8g2Fonts.setFont(FONT_SUB);
+            twChi = u8g2Fonts.getUTF8Width(ch);
+            if (twChi > cellW) {
+                char dest[21];
+                strncpy(dest, ch, 20);
+                dest[20] = '\0';
+                twChi = u8g2Fonts.getUTF8Width(dest);
+            }
+        }
+        int txChi = x0 + (cellW - twChi) / 2;
+        int tyChi = y0 + cellH / 2 + 16;
+        if (txChi < x0 + 2) {
+            txChi = x0 + 2;
+        }
+        u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+        u8g2Fonts.drawUTF8(txChi, tyChi, ch);
+    }
+    return true;
+}
+
+boolean drawChineseWords(int screen_index) {
+
+    // drawDashedHLine(0, title_height - 20, display.width(), GxEPD_RED);
+    // drawDashedHLine(0, title_height, display.width(), GxEPD_RED);
+
+    display.fillRect(0, 60, display.width(), 20, GxEPD_BLACK);
+
+    drawDashedHLine(0, cellH + title_height, display.width());
+    drawDashedHLine(0, cellH * 2 + title_height, display.width());
+    drawDashedVLine(cellW, title_height, display.height());
+
+    u8g2Fonts.setFont(FONT_TEXT);
+    u8g2Fonts.setBackgroundColor(GxEPD_BLACK);
+    u8g2Fonts.setForegroundColor(GxEPD_WHITE);
+
+    int word_index = (screen_index - 1) / 2 * 6;
+    std::vector<Word> words = daily_words();
+    if (words.size() < word_index + 6) {
+        Serial.println("ERR: words size less than " + String(word_index + 6));
+        const char* title = "单词数据异常";
+        int titleWidth = u8g2Fonts.getUTF8Width(title);
+        int titleTx = (display.width() - titleWidth) / 2;
+        u8g2Fonts.drawUTF8(titleTx, title_height - 4, title);
+        return false;
     }
 
+    const char* title = "英语六级练习，答案揭晓";
+    int titleWidth = u8g2Fonts.getUTF8Width(title);
+    int titleTx = (display.width() - titleWidth) / 2;
+    u8g2Fonts.drawUTF8(titleTx, title_height - 4, title);
+
+    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    for (int i = 0; i < 6; i++) {
+        int row = i % 3;
+        int col = i / 3;
+        int x0 = col * cellW;
+        int y0 = row * cellH + title_height;
+
+        const char* en = words[word_index + i].en.c_str();
+        const char* ch = words[word_index + i].ch.c_str();
+
+        // 英文
+        u8g2Fonts.setFont(FONT_BOLD);
+        int twEng = u8g2Fonts.getUTF8Width(en);
+        int txEng = x0 + (cellW - twEng) / 2;
+        int tyEng = y0 + cellH / 2 - 6;
+        if (txEng < x0 + 2) {
+            txEng = x0 + 2;
+        }
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.drawUTF8(txEng, tyEng, en);
+
+        // 中文
+        u8g2Fonts.setFont(FONT_TEXT);
+        int twChi = u8g2Fonts.getUTF8Width(ch);
+        if (twChi > cellW) {
+            u8g2Fonts.setFont(FONT_SUB);
+            twChi = u8g2Fonts.getUTF8Width(ch);
+            if (twChi > cellW) {
+                char dest[21];
+                strncpy(dest, ch, 20);
+                dest[20] = '\0';
+                twChi = u8g2Fonts.getUTF8Width(dest);
+            }
+        }
+        int txChi = x0 + (cellW - twChi) / 2;
+        int tyChi = y0 + cellH / 2 + 16;
+        if (txChi < x0 + 2) {
+            txChi = x0 + 2;
+        }
+        u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+        u8g2Fonts.drawUTF8(txChi, tyChi, ch);
+    }
+    return true;
 }
 
 ///////////// Calendar //////////////
 /**
- * 处理日历信息
+ * 处理时间日期信息
  */
-void si_calendar() {
-    _calendar_status = 0;
-
-    Preferences pref;
-    pref.begin(PREF_NAMESPACE);
-    int32_t _calendar_date = pref.getInt(PREF_SI_CAL_DATE);
-    _cd_day_label = pref.getString(PREF_CD_DAY_LABLE);
-    _cd_day_date = pref.getString(PREF_CD_DAY_DATE);
-    _tag_days_str = pref.getString(PREF_TAG_DAYS);
-    _week_1st = 1; // 1:星期一作为每周第一天 0:星期天作为每周第一天
-    _study_schedule = pref.getString(PREF_STUDY_SCHEDULE);
-    _si_type = pref.getInt(PREF_SI_TYPE);
-    if (_study_schedule.isEmpty()) _si_type = 0;
-
-    pref.end();
+boolean get_datetime() {
 
     time_t now = 0;
     time(&now);
@@ -751,19 +634,16 @@ void si_calendar() {
 
     // 如果当前时间无效
     if (tmInfo.tm_year + 1900 < 2025) {
-        bool isSetOK = false;
-        if (weather_status() == 1) {
+        if (api_info_status() == 1) {
             // 尝试使用api获取的时间
-            String apiTime;
-            Weather* weatherNow = weather_data_now();
-            apiTime = weatherNow->updateTime;
-            Serial.printf("API Time: %s\n", apiTime.c_str());
+            Weather* weatherNow = weather_data();
+            const char* apiTime = weatherNow->updateTime.c_str(); // e.g. 2024-11-14T17:36+08:00
+            Serial.printf("API Time: %s\n", apiTime);
             tmInfo = { 0 }; // 重置为0
-            if (strptime(apiTime.c_str(), "%Y-%m-%dT%H:%M", &tmInfo) != NULL) {  // 将时间字符串转成tm时间 e.g. 2024-11-14T17:36+08:00
+            if (strptime(apiTime, "%Y-%m-%dT%H:%M", &tmInfo) != NULL) {  // 将时间字符串转成tm时间 e.g. 2024-11-14T17:36+08:00
                 time_t set = mktime(&tmInfo);
                 timeval tv;
                 tv.tv_sec = set;
-                isSetOK = (settimeofday(&tv, nullptr) == 0);
                 Serial.println("WARN: Set system time by api time.");
             } else {
                 Serial.println("ERR: Fail to format api time.");
@@ -771,10 +651,7 @@ void si_calendar() {
         } else {
             // 如果天气也未获取成功，那么返回
             Serial.println("ERR: invalid time & not weather info got.");
-        }
-        if (!isSetOK) {
-            _calendar_status = 2;
-            return;
+            return false;
         }
     }
 
@@ -785,26 +662,30 @@ void si_calendar() {
     nl_month_days(tmInfo.tm_year + 1900, tmInfo.tm_mon + 1, lunarDates);
     nl_year_jq(tmInfo.tm_year + 1900, jqAccDate);
 
-    _calendar_status = 1;
-    return;
-}
-
-int si_calendar_status() {
-    return _calendar_status;
+    return true;
 }
 
 ///////////// Screen //////////////
 /**
  * 屏幕刷新
  */
-void task_screen(void* param) {
-    Serial.println("[Task] screen update begin...");
+void show_screen_task(void* param) {
+    _screen_status = 0;
+    Serial.println("show_screen, _screen_index: " + String(_screen_index));
 
+    if (!get_datetime()) { // 准备时间日期信息
+        Serial.println("ERR: System time prepare failed.");
+        _screen_status = 2;
+        SCREEN_HANDLER = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
     
     int voltage = readBatteryVoltage();
 
     delay(100);
 
+    Serial.println("[Task] screen update begin...");
     display.init(115200);          // 串口使能 初始化完全刷新使能 复位时间 ret上拉使能
     display.setRotation(ROTATION); // 设置屏幕旋转1和3是横向  0和2是纵向
     u8g2Fonts.begin(display);
@@ -814,31 +695,31 @@ void task_screen(void* param) {
     display.firstPage();
     display.fillScreen(GxEPD_WHITE);
     do {
-        if (_si_type == 1) {
-            drawStudySchedule();
+        if (_screen_index == 1 || _screen_index == 3 || _screen_index == 5) {
+            drawEnglishWords(_screen_index);
+        } else if (_screen_index == 2 || _screen_index == 4 || _screen_index == 6) {
+            drawChineseWords(_screen_index);
         } else {
+            _screen_index = 0;
             draw_cal_days();
             draw_cal_header();
         }
 
         draw_cal_year();
 
-        // 倒计日
-        draw_cd_day(_cd_day_label, _cd_day_date);
-
-        if (weather_status() == 1) {
+        if (api_info_status() == 1) {
             draw_weather();
+        } else {
+            draw_err("获取天气数据失败");
         }
-        if (voltage > 1000 && voltage < 4300) {
+        if (voltage > 3000 && voltage < 4300) {
             draw_battery(voltage);
         }
     } while (display.nextPage());
-
-    int32_t _calendar_date = (tmInfo.tm_year + 1900) * 10000 + (tmInfo.tm_mon + 1) * 100 + tmInfo.tm_mday;
-
+    
     Preferences pref;
     pref.begin(PREF_NAMESPACE);
-    pref.putInt(PREF_SI_CAL_DATE, _calendar_date);
+    pref.putInt(PREF_SI_TYPE, _screen_index);
     pref.end();
 
     display.powerOff();
@@ -850,23 +731,17 @@ void task_screen(void* param) {
     vTaskDelete(NULL);
 }
 
-void si_screen() {
-    _screen_status = 0;
-    si_calendar(); // 准备日历数据
-
-    if (si_calendar_status() == 2) {
-        Serial.println("ERR: System time prepare failed.");
-        _screen_status = 2;
-        return;
-    }
+void show_screen(int screen_index) {
 
     if (SCREEN_HANDLER != NULL) {
         vTaskDelete(SCREEN_HANDLER);
     }
-    xTaskCreate(task_screen, "Screen", 4096, NULL, 2, &SCREEN_HANDLER);
+    _screen_index = screen_index;
+    xTaskCreate(show_screen_task, "Screen", 4096, NULL, 2, &SCREEN_HANDLER);
 }
 
-int si_screen_status() {
+int show_screen_status() {
+    // -1: 初始化 0: 显示中 1: 显示成功 2: 显示失败
     return _screen_status;
 }
 

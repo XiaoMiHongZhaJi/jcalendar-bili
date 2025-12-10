@@ -6,7 +6,7 @@
 #include "battery.h"
 #include "led.h"
 #include "_sntp.h"
-#include "weather.h"
+#include "api_info.h"
 #include "screen_ink.h"
 #include "_preference.h"
 #include "version.h"
@@ -57,10 +57,11 @@ void print_wakeup_reason() {
 
 void buttonClick(void* oneButton);
 void buttonLongPressStop(void* oneButton);
-void go_sleep();
+void go_sleep(int sleep_seconds = 0);
 
 unsigned long _idle_millis;
 unsigned long TIME_TO_SLEEP = 180 * 1000;
+int screen_index = 0;
 
 bool _wifi_flag = false;
 unsigned long _wifi_failed_millis;
@@ -72,7 +73,6 @@ WiFiManagerParameter para_qweather_location("qweather_loc", "位置ID", "", 64);
 WiFiManagerParameter para_cd_day_label("cd_day_label", "倒数日（4字以内）", "", 10); //     倒数日
 WiFiManagerParameter para_cd_day_date("cd_day_date", "日期（yyyyMMdd）", "", 8, "pattern='\\d{8}'"); //     城市code
 WiFiManagerParameter para_tag_days("tag_days", "日期Tag（yyyyMMddx，详见README）", "", 30); //     日期Tag
-WiFiManagerParameter para_study_schedule("study_schedule", "课程表", "0", 4000, "pattern='\\[0-9]{3}[;]$'"); //     每周第一天
 
 void setup() {
     delay(10);
@@ -129,7 +129,7 @@ void setup() {
         _wifi_failed_millis = millis();
         led_slow();
         _sntp_exec(2);
-        weather_exec(2);
+        api_info_exec(2);
         WiFi.mode(WIFI_OFF); // 提前关闭WIFI，省电
         Serial.println("Wifi closed.");
     }
@@ -156,27 +156,42 @@ void loop() {
     if (_sntp_status() == -1) {
         _sntp_exec();
     }
-    // 如果是定时器唤醒，并且接近午夜（23:50之后），则直接休眠
-    if (_sntp_status() == SYNC_STATUS_TOO_LATE) {
-        go_sleep();
-    }
     // 前置任务：wifi已连接
     // 获取Weather信息
-    if (weather_status() == -1) {
-        weather_exec();
+    if (api_info_status() == -1) {
+        api_info_exec();
     }
 
     // 刷新日历
     // 前置任务：sntp、weather
     // 执行条件：屏幕状态为待处理
-    if (_sntp_status() > 0 && weather_status() > 0 && si_screen_status() == -1) {
+    if (_sntp_status() > 0 && api_info_status() > 0 && show_screen_status() == -1) {
         // 数据获取完毕后，关闭Wifi，省电
         if (!wm.getConfigPortalActive()) {
             WiFi.mode(WIFI_OFF);
         }
         Serial.println("Wifi closed after data fetch.");
 
-        si_screen();
+        Preferences pref;
+        pref.begin(PREF_NAMESPACE);
+        screen_index = pref.getInt(PREF_SI_TYPE);
+        pref.end();
+        Serial.println("get screen_index: " + String(screen_index));
+        esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+        if (cause == ESP_SLEEP_WAKEUP_EXT0) {
+            // 按键唤醒
+            screen_index ++;
+        } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
+            // 定时器唤醒
+            if (screen_index == 1 || screen_index == 3 || screen_index == 5) {
+                // 如果是等待展示英文单词页面，则展示下一屏
+                screen_index ++;
+            } else {
+                // 否则展示首页
+                screen_index = 0;
+            }
+        }
+        show_screen(screen_index);
         _screen_refersh_millis = millis();
     }
 
@@ -184,12 +199,17 @@ void loop() {
     // 前置条件：屏幕刷新完成（或成功）
 
     // 未在配置状态，且屏幕刷新完成，进入休眠
-    if (!wm.getConfigPortalActive() && si_screen_status() > 0) {
-        if (_wifi_flag && millis() - _screen_refersh_millis > 10 * 1000) { // 如果wifi连接成功，等待10秒休眠
-            go_sleep();
-        }
-        if (!_wifi_flag && millis() - _wifi_failed_millis > 10 * 1000) { // 如果wifi连接不成功，等待10秒休眠
-            go_sleep();
+    if (!wm.getConfigPortalActive() && show_screen_status() > 0) {
+        if (millis() - _screen_refersh_millis > 10 * 1000 || millis() - _wifi_failed_millis > 10 * 1000) {   
+            if (screen_index == 1 || screen_index == 3 || screen_index == 5) {
+                // 如果是展示中文单词页面，则休眠时间很短
+                go_sleep(20);
+            } else if (screen_index == 2 || screen_index == 4 || screen_index == 6) {
+                // 如果是展示中英文单词页面，则休眠时间较短
+                go_sleep(60 * 3);
+            } else {
+                go_sleep();
+            }
         }
     }
     // 配置状态下，
@@ -209,13 +229,15 @@ void buttonClick(void* oneButton) {
         Serial.println("In config status, restart to apply new settings.");
         ESP.restart();
     } else {
-        Serial.println("Refresh screen manually.");
+        Serial.println("Refresh screen manually by click.");
+
         Preferences pref;
         pref.begin(PREF_NAMESPACE);
-        int _si_type = pref.getInt(PREF_SI_TYPE);
-        pref.putInt(PREF_SI_TYPE, _si_type == 0 ? 1 : 0);
+        int screen_index = pref.getInt(PREF_SI_TYPE);
         pref.end();
-        si_screen();
+        
+        ++screen_index;
+        show_screen(screen_index);
         _screen_refersh_millis = millis();
     }
 }
@@ -225,10 +247,6 @@ void saveParamsCallback() {
     pref.begin(PREF_NAMESPACE);
     pref.putString(PREF_QWEATHER_HOST, para_qweather_host.getValue());
     pref.putString(PREF_QWEATHER_LOC, para_qweather_location.getValue());
-    pref.putString(PREF_CD_DAY_LABLE, para_cd_day_label.getValue());
-    pref.putString(PREF_CD_DAY_DATE, para_cd_day_date.getValue());
-    pref.putString(PREF_TAG_DAYS, para_tag_days.getValue());
-    pref.putString(PREF_STUDY_SCHEDULE, para_study_schedule.getValue());
     pref.end();
 
     Serial.println("Params saved.");
@@ -236,9 +254,6 @@ void saveParamsCallback() {
     _idle_millis = millis(); // 刷新无操作时间点
 
     ESP.restart();
-}
-
-void preSaveParamsCallback() {
 }
 
 // 长按打开配置页面，配置页面再次长按则清除配置并重启
@@ -256,8 +271,8 @@ void buttonLongPressStop(void* oneButton) {
         return;
     }
 
-    if (weather_status() == 0) {
-        weather_stop();
+    if (api_info_status() == 0) {
+        api_info_stop();
     }
 
     // 设置配置页面
@@ -266,31 +281,21 @@ void buttonLongPressStop(void* oneButton) {
     pref.begin(PREF_NAMESPACE);
     String qHost = pref.getString(PREF_QWEATHER_HOST);
     String qLoc = pref.getString(PREF_QWEATHER_LOC);
-    String cddLabel = pref.getString(PREF_CD_DAY_LABLE);
-    String cddDate = pref.getString(PREF_CD_DAY_DATE);
-    String tagDays = pref.getString(PREF_TAG_DAYS);
-    String studySchedule = pref.getString(PREF_STUDY_SCHEDULE);
     pref.end();
 
     para_qweather_host.setValue(qHost.c_str(), 64);
     para_qweather_location.setValue(qLoc.c_str(), 64);
-    para_cd_day_label.setValue(cddLabel.c_str(), 16);
-    para_cd_day_date.setValue(cddDate.c_str(), 8);
-    para_tag_days.setValue(tagDays.c_str(), 30);
-    para_study_schedule.setValue(studySchedule.c_str(), 4000);
 
-    wm.setTitle("J-Calendar");
+    wm.setTitle("电子墨水屏设置");
     wm.addParameter(&para_qweather_host);
     wm.addParameter(&para_qweather_location);
     wm.addParameter(&para_cd_day_label);
     wm.addParameter(&para_cd_day_date);
     wm.addParameter(&para_tag_days);
-    wm.addParameter(&para_study_schedule);
     std::vector<const char*> menu = {"wifi", "param", "update", "sep", "info", "restart", "exit"};
     wm.setMenu(menu); // custom menu, pass vector
     wm.setConfigPortalBlocking(false);
     wm.setBreakAfterConfig(true);
-    wm.setPreSaveParamsCallback(preSaveParamsCallback);
     wm.setSaveParamsCallback(saveParamsCallback);
     wm.setSaveConnect(false); // 保存完wifi信息后是否自动连接，设置为否，以便于用户继续配置param。
     wm.startConfigPortal("电子墨水屏设置");
@@ -304,7 +309,7 @@ void buttonLongPressStop(void* oneButton) {
 #define uS_TO_S_FACTOR 1000000
 #define TIMEOUT_TO_SLEEP  10 // seconds
 time_t blankTime = 0;
-void go_sleep() {
+void go_sleep(int sleep_seconds) {
     uint64_t p;
     // 根据配置情况来刷新，如果未配置qweather信息，则24小时刷新，否则每2小时刷新
 
@@ -312,16 +317,19 @@ void go_sleep() {
     time(&now);
     struct tm local;
     localtime_r(&now, &local);
-    // Sleep to next even hour.
-    int secondsToNextHour = (60 - local.tm_min) * 60 - local.tm_sec;
-    if ((local.tm_hour % 2) == 0) { // 如果是奇数点，则多睡1小时
-        secondsToNextHour += 3600;
+    // 指定唤醒时间
+    int secondsToNextHour = sleep_seconds;
+    if (sleep_seconds == 0) {
+        // 未指定，则根据配置计算时间
+        secondsToNextHour = (60 - local.tm_min) * 60 - local.tm_sec + 40;
+        if (local.tm_hour == 23) {
+            secondsToNextHour += 20;
+        } else if (secondsToNextHour < 600) {
+            secondsToNextHour += 3600;
+        }
     }
     Serial.printf("Seconds to next even hour: %d seconds.\n", secondsToNextHour);
-    p = (uint64_t)(secondsToNextHour);
-    p = p < 0 ? 3600 : (p + 10); // 额外增加10秒，避免过早唤醒
-
-    esp_sleep_enable_timer_wakeup(p * (uint64_t)uS_TO_S_FACTOR);
+    esp_sleep_enable_timer_wakeup(secondsToNextHour * (uint64_t)uS_TO_S_FACTOR);
     esp_sleep_enable_ext0_wakeup(KEY_M, LOW);
 
     // 省电考虑，关闭RTC外设和存储器

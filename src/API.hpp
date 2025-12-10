@@ -5,18 +5,30 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_http_client.h>
-#include <ArduinoUZlib.h> // 解压gzip
 
 struct Weather {
-    const char* time;
-    const char* temp;
-    const char* humidity;
-    const char* windDir;
-    const char* windScale;
-    const char* windSpeed;
-    const char* icon;
-    const char* text;
-    const char* updateTime;
+    String time;
+    String temp;
+    String humidity;
+    String windDir;
+    String windScale;
+    String windSpeed;
+    String icon;
+    String text;
+    String updateTime;
+};
+
+// 定义单词结构体
+struct Word {
+    String ch;
+    String en;
+};
+
+// 定义返回数据结构体
+
+struct ApiInfo {
+    Weather weather;
+    std::vector<Word> dailyWords;
 };
 
 struct Bilibili {
@@ -47,23 +59,39 @@ public:
     }
 
     // 和风天气 - 实时天气: https://dev.qweather.com/docs/api/weather/weather-now/
-    bool getWeatherNow(Weather& result, const char* host, const char* locid) {
+    bool getApiInfo(ApiInfo& apiInfo, const char* host, const char* locid) {
         return getRestfulAPI(
-            "http://" + String(host) + "/weather?location=" + String(locid), [&result](JsonDocument& json) {
+            "http://" + String(host) + "/apiInfo?location=" + String(locid), [&apiInfo](JsonDocument& json) {
                 if (strcmp(json["code"], "200") != 0) {
                     Serial.print(F("Get weather failed, error: "));
                     Serial.println(json["code"].as<const char*>());
                     return false;
                 }
-                result.updateTime = json["updateTime"].as<const char*>();
-                result.time = json["obsTime"].as<const char*>();
-                result.temp = json["temp"].as<const char*>();
-                result.humidity = json["humidity"].as<const char*>();
-                result.windDir = json["windDir"].as<const char*>();
-                result.windScale = json["windScale"].as<const char*>();
-                result.windSpeed = json["windSpeed"].as<const char*>();
-                result.icon = json["icon"].as<const char*>();
-                result.text = json["text"].as<const char*>();
+
+                JsonObject weather = json["weather"];
+                Weather weatherResult;
+                weatherResult.updateTime = weather["updateTime"].as<const char*>();
+                weatherResult.time = weather["obsTime"].as<const char*>();
+                weatherResult.temp = weather["temp"].as<const char*>();
+                weatherResult.humidity = weather["humidity"].as<const char*>();
+                weatherResult.windDir = weather["windDir"].as<const char*>();
+                weatherResult.windScale = weather["windScale"].as<const char*>();
+                weatherResult.windSpeed = weather["windSpeed"].as<const char*>();
+                weatherResult.icon = weather["icon"].as<const char*>();
+                weatherResult.text = weather["text"].as<const char*>();
+                apiInfo.weather = weatherResult;
+
+                JsonArray dailyWords = json["dailyWords"];
+                std::vector<Word> dailyWordsResult;
+                // 解析 words 数组
+                for (JsonObject wordObj : dailyWords) {
+                    Word w;
+                    w.ch = wordObj["ch"].as<const char*>();
+                    w.en = wordObj["en"].as<const char*>();
+                    dailyWordsResult.push_back(w);
+                }
+                apiInfo.dailyWords = dailyWordsResult;
+
                 return true;
             });
     }

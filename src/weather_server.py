@@ -1,34 +1,74 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import json
 import random
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+import logging
+
+QWEATHER_URL = "https://your_qweatherapi.com/v7/weather/now"
+API_KEY = "your_api_key"
+LOCATION = "101021600" # 上海市
+CET6_WORDS_PATH = "/root/sh/cet6_words.json"
+WORDS_HISTORY_DAYS = 3
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("weather_server")
 
 app = Flask(__name__)
+words_cache = {}
+api_info_cache = {}
 
-# 简单内存缓存（如果希望持久化可改文件缓存）
-_cache = {}
 
-QWEATHER_URL = "https://your_qweather_api_host/v7/weather/now"
-API_KEY = "your_api_key"
-LOCATION = "101021600" #上海
+@app.route("/apiInfo")
+def apiInfo():
+
+    location = request.args.get('location') or LOCATION
+    global api_info_cache
+    need_update = False
+
+    if not api_info_cache or location not in api_info_cache:
+        need_update = True
+    else:
+        last_update = api_info_cache[location].get("updateTime", "")
+        if datetime.now() - datetime.strptime(last_update, "%Y-%m-%d %H:%M:%S") > timedelta(minutes=50):
+            need_update = True
+            logger.info(f"apiInfo cache is outdated, last update: {last_update}, location: {location}")
+    if need_update:
+        logger.info("Updating apiInfo cache, location: " + location)
+        api_info_cache[location] = {
+            "code": "200",
+            "weather": get_weather(location),
+            "dailyWords": get_daily_words(),
+            "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+    else:
+        logger.info(f"Using cached apiInfo, last update: {api_info_cache[location].get('updateTime','')}, location: {location}")
+
+    return jsonify(api_info_cache[location])
 
 
 @app.route("/weather")
 def weather():
-    weather = get_weather()
-    return jsonify(weather)
+
+    location = request.args.get('location') or LOCATION
+    return jsonify(get_weather(location))
 
 
-def get_weather():
+@app.route("/dailyWords", methods=["GET"])
+def dailyWords():
+    return jsonify(get_daily_words())
+
+
+def get_weather(location):
     params = {
         "key": API_KEY,
-        "location": LOCATION
+        "location": location
     }
 
+    # requests 会自动处理 gzip 压缩
     resp = requests.get(QWEATHER_URL, params=params, timeout=5)
     data = resp.json()
-    print(data)
+    logger.info("Fetched weather data: " + json.dumps(data))
 
     now = data.get("now", {})
 
@@ -136,6 +176,81 @@ def get_icon(icon_id: int, time: str) -> str:
     night = is_night(time)
     day_icon, night_icon = ICON_TABLE.get(icon_id, ("\uf1e9", "\uf146"))
     return night_icon if night else day_icon
+
+
+def load_words(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def pick_random_words(data):
+    """从词库随机选 3 个 word 项"""
+    return random.sample(data, 3)
+
+
+def pick_phrase_or_word(base_word, data):
+    """如果 base_word 有 phrases, 返回随机 phrase, 否则随机 word"""
+    if "phrases" in base_word and base_word["phrases"]:
+        return random.choice(base_word["phrases"])
+    else:
+        return random.choice(data)
+
+
+def format_word_item(item):
+    if "phrase" in item:
+        return {"en": item["phrase"], "ch": item["translation"]}
+
+    trans = item["translations"][0]
+    t = f"{trans['type']}. {trans['translation']}"
+    return {"en": item["word"], "ch": t}
+
+
+def get_random_words():
+
+    data = load_words(CET6_WORDS_PATH)
+
+    # Step 1: 随机取 3 个单词
+    first_three = pick_random_words(data)
+
+    # Step 2: 根据前 3 个生成后 3 个
+    next_three = []
+    for i in range(3):
+        base = first_three[i]
+        chosen = pick_phrase_or_word(base, data)
+        next_three.append(chosen)
+
+    # Step 3: 格式化 [["english","中文"], ...]
+    formatted = (
+            [format_word_item(w) for w in first_three] +
+            [format_word_item(w) for w in next_three]
+    )
+
+    return formatted
+
+
+# 每天生成一次新的单词，缓存起来，返回最近几天的单词总和
+def get_daily_words():
+
+    global words_cache
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # 缓存判断
+    if not today in words_cache:
+        logger.info("Generating new daily words for " + today)
+        today_words = get_random_words()
+        words_cache[today] = today_words
+
+    # 汇总最近几天的单词
+    result_words = list(words_cache[today])
+    for i in range(1, 3):
+        day = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+        if not day in words_cache:
+            logger.info("Generating new daily words for " + day)
+            day_words = get_random_words()
+            words_cache[day] = day_words
+        result_words += words_cache[day]
+
+    return result_words
 
 
 if __name__ == "__main__":

@@ -44,12 +44,9 @@ void _sntp_task(void* pvParameter) {
     struct tm tmInfo = { 0 };
     localtime_r(&now, &tmInfo);
     Serial.printf("Now: %d-%02d-%02d %02d:%02d:%02d\r\n", tmInfo.tm_year + 1900, tmInfo.tm_mon + 1, tmInfo.tm_mday, tmInfo.tm_hour, tmInfo.tm_min, tmInfo.tm_sec);
-
-    // 如果当前时间是23:50之后，并且是定时器唤醒的情况下，不作后续处理，直接休眠，待新的一天唤醒
-    if(tmInfo.tm_hour == 23 && tmInfo.tm_min > 50 && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
-        re = SYNC_STATUS_TOO_LATE;
-    } else {
-        Holiday _holiday;
+    
+    // 获取节假日信息并缓存
+    Holiday _holiday;
         Preferences pref;
         pref.begin(PREF_NAMESPACE);
         size_t holiday_size = pref.getBytesLength(PREF_HOLIDAY);
@@ -65,7 +62,6 @@ void _sntp_task(void* pvParameter) {
                 pref.end();
             }
         }
-    }
 
     _status = re;
     vTaskDelete(NULL); // 删除任务
