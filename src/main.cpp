@@ -70,9 +70,35 @@ unsigned long _screen_refersh_millis;
 WiFiManager wm;
 WiFiManagerParameter para_qweather_host("qweather_host", "天气服务器Host", "", 64);
 WiFiManagerParameter para_qweather_location("qweather_loc", "位置ID", "", 64); //     城市code
-WiFiManagerParameter para_cd_day_label("cd_day_label", "倒数日（4字以内）", "", 10); //     倒数日
-WiFiManagerParameter para_cd_day_date("cd_day_date", "日期（yyyyMMdd）", "", 8, "pattern='\\d{8}'"); //     城市code
-WiFiManagerParameter para_tag_days("tag_days", "日期Tag（yyyyMMddx，详见README）", "", 30); //     日期Tag
+
+void beepOnce(uint16_t beepFreq, uint16_t beepTime) {
+  tone(BEEP_PIN, beepFreq);   // 发声
+  delay(beepTime);
+  noTone(BEEP_PIN);           // 停止
+}
+
+
+// 单击
+void buttonClick(void* oneButton) {
+    Serial.println("Button click.");
+    beepOnce(2000, 100);
+
+    if (wm.getConfigPortalActive()) {
+        Serial.println("In config status, restart to apply new settings.");
+        ESP.restart();
+    } else {
+        Serial.println("Refresh screen manually by click.");
+
+        Preferences pref;
+        pref.begin(PREF_NAMESPACE);
+        int screen_index = pref.getInt(PREF_SI_TYPE);
+        pref.end();
+        
+        ++screen_index;
+        show_screen(screen_index);
+        _screen_refersh_millis = millis();
+    }
+}
 
 void setup() {
     delay(10);
@@ -81,7 +107,6 @@ void setup() {
     print_wakeup_reason();
     Serial.println("\r\n\r\n");
     delay(10);
-
 
     Serial.printf("***********************\r\n");
     Serial.printf("      J-Calendar\r\n");
@@ -98,7 +123,7 @@ void setup() {
         Serial.println("[INFO]电池损坏或无ADC电路。");
     } else if(voltage < 3000) {
         Serial.println("[WARN]电量低于3v，系统休眠。");
-        go_sleep();
+        go_sleep(7 * 24 * 60 * 60); // 一星期后唤醒
     } else if (voltage < 3300) {
         // 低于3.3v，电池电量用尽，屏幕给警告，然后关机。 
         Serial.println("[WARN]电量低于3.3v，警告并系统休眠。");
@@ -116,6 +141,7 @@ void setup() {
 
     Serial.println("Wm begin...");
     led_fast();
+    beepOnce(2000, 100);
     wm.setHostname("J-Calendar");
     wm.setEnableConfigPortal(false);
     wm.setConnectTimeout(10);
@@ -202,44 +228,34 @@ void loop() {
     if (!wm.getConfigPortalActive() && show_screen_status() > 0) {
         if (millis() - _screen_refersh_millis > 10 * 1000 || millis() - _wifi_failed_millis > 10 * 1000) {   
             if (screen_index == 1 || screen_index == 3 || screen_index == 5) {
+                Serial.println("screen_index 1 go_sleep");
                 // 如果是展示中文单词页面，则休眠时间很短
                 go_sleep(20);
             } else if (screen_index == 2 || screen_index == 4 || screen_index == 6) {
+                Serial.println("screen_index 2 go_sleep");
                 // 如果是展示中英文单词页面，则休眠时间较短
                 go_sleep(60 * 3);
             } else {
+                Serial.println("screen_index else go_sleep");
                 go_sleep();
             }
         }
     }
     // 配置状态下，
     if (wm.getConfigPortalActive() && millis() - _idle_millis > TIME_TO_SLEEP) {
+        Serial.println("配置状态下 go_sleep");
         go_sleep();
     }
 
     delay(10);
 }
 
-
-// 单击
-void buttonClick(void* oneButton) {
-    Serial.println("Button click.");
-
-    if (wm.getConfigPortalActive()) {
-        Serial.println("In config status, restart to apply new settings.");
-        ESP.restart();
-    } else {
-        Serial.println("Refresh screen manually by click.");
-
-        Preferences pref;
-        pref.begin(PREF_NAMESPACE);
-        int screen_index = pref.getInt(PREF_SI_TYPE);
-        pref.end();
-        
-        ++screen_index;
-        show_screen(screen_index);
-        _screen_refersh_millis = millis();
-    }
+// 蜂鸣器 提示音次数, 间隔(毫秒), 频率(Hz), 持续时间(毫秒)
+void playBeepPattern(uint8_t beepCount, uint16_t pauseTime, uint16_t beepFreq, uint16_t beepTime) {
+  for (uint8_t i = 0; i < beepCount; i++) {
+    beepOnce(beepFreq, beepTime);
+    delay(pauseTime);
+  }
 }
 
 void saveParamsCallback() {
@@ -259,6 +275,7 @@ void saveParamsCallback() {
 // 长按打开配置页面，配置页面再次长按则清除配置并重启
 void buttonLongPressStop(void* oneButton) {
     Serial.println("Button long press.");
+    beepOnce(2000, 500);
 
     if (wm.getConfigPortalActive()) {
         // 删除Preferences，namespace下所有健值对。
@@ -279,8 +296,8 @@ void buttonLongPressStop(void* oneButton) {
     // 根据配置信息设置默认值
     Preferences pref;
     pref.begin(PREF_NAMESPACE);
-    String qHost = pref.getString(PREF_QWEATHER_HOST);
-    String qLoc = pref.getString(PREF_QWEATHER_LOC);
+    String qHost = pref.getString(PREF_QWEATHER_HOST, "192.168.10.225:5000");
+    String qLoc = pref.getString(PREF_QWEATHER_LOC, "101021600");
     pref.end();
 
     para_qweather_host.setValue(qHost.c_str(), 64);
@@ -289,9 +306,6 @@ void buttonLongPressStop(void* oneButton) {
     wm.setTitle("电子墨水屏设置");
     wm.addParameter(&para_qweather_host);
     wm.addParameter(&para_qweather_location);
-    wm.addParameter(&para_cd_day_label);
-    wm.addParameter(&para_cd_day_date);
-    wm.addParameter(&para_tag_days);
     std::vector<const char*> menu = {"wifi", "param", "update", "sep", "info", "restart", "exit"};
     wm.setMenu(menu); // custom menu, pass vector
     wm.setConfigPortalBlocking(false);
@@ -329,33 +343,12 @@ void go_sleep(int sleep_seconds) {
         }
     }
     Serial.printf("Seconds to next even hour: %d seconds.\n", secondsToNextHour);
-    esp_sleep_enable_timer_wakeup(secondsToNextHour * (uint64_t)uS_TO_S_FACTOR);
-    esp_sleep_enable_ext0_wakeup(KEY_M, LOW);
-
-    // 省电考虑，关闭RTC外设和存储器
-    // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF); // RTC IO, sensors and ULP, 注意：由于需要按键唤醒，所以不能关闭，否则会导致RTC_IO唤醒(ext0)失败
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF); // 
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC8M, ESP_PD_OPTION_OFF);
-
-    gpio_deep_sleep_hold_dis(); // 解除所有引脚的保持状态
-    
-    // 省电考虑，重置gpio，平均每针脚能省8ua。
-    // gpio_reset_pin(PIN_LED_R); // 减小deep-sleep电流
-    gpio_reset_pin(SPI_CS); // 减小deep-sleep电流
-    gpio_reset_pin(SPI_DC); // 减小deep-sleep电流
-    gpio_reset_pin(SPI_RST); // 减小deep-sleep电流
-    gpio_reset_pin(SPI_BUSY); // 减小deep-sleep电流`
-    gpio_reset_pin(SPI_MOSI); // 减小deep-sleep电流
-    gpio_reset_pin(SPI_MISO); // 减小deep-sleep电流
-    gpio_reset_pin(SPI_SCK); // 减小deep-sleep电流
-    // gpio_reset_pin(PIN_ADC); // 减小deep-sleep电流
-    // gpio_reset_pin(I2C_SDA); // 减小deep-sleep电流
-    // gpio_reset_pin(I2C_SCL); // 减小deep-sleep电流
-
-    delay(10);
+    pinMode(PIN_LED_R, INPUT); // Off 
+    delay(100);
     Serial.println("Deep sleep...");
     Serial.flush();
+    esp_sleep_enable_ext0_wakeup(KEY_M, LOW);
+    esp_sleep_enable_timer_wakeup(secondsToNextHour * (uint64_t)uS_TO_S_FACTOR);
+    Serial.println("Deep sleep now...");
     esp_deep_sleep_start();
 }

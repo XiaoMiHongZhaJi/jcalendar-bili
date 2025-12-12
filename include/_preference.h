@@ -11,10 +11,6 @@
 
 #define PREF_QWEATHER_HOST "QWEATHER_HOST" // QWEATHER HOST
 #define PREF_QWEATHER_LOC "QWEATHER_LOC" // 地理位置
-#define PREF_CD_DAY_DATE "CD_DAY_DATE" // 倒计日
-#define PREF_CD_DAY_LABLE "CD_DAY_LABLE" // 倒计日名称
-#define PREF_TAG_DAYS "TAG_DAYS" // tag day
-#define PREF_STUDY_SCHEDULE "STUDY_SCH" // 课程表
 
 // 假期信息，tm年，假期日(int8)，假期日(int8)...
 #define PREF_HOLIDAY "HOLIDAY"

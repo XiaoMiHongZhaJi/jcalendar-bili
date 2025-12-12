@@ -24,7 +24,7 @@
  * 获取电池电压（mV）
  */
 int readBatteryVoltage() {
-    static const adc1_channel_t channel = ADC1_CHANNEL_4;  // GPIO32
+    static const adc1_channel_t channel = ADC1_CHANNEL_7;  // GPIO8
     adc1_config_width(ADC_WIDTH_BIT_12);
     adc1_config_channel_atten(channel, ADC_ATTEN_11db);
     adc_power_acquire();

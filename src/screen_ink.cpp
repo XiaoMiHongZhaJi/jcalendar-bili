@@ -686,6 +686,10 @@ void show_screen_task(void* param) {
     delay(100);
 
     Serial.println("[Task] screen update begin...");
+    Serial.flush();
+    SPIClass hspi(FSPI);
+    hspi.begin(SPI_SCK, -1, SPI_MOSI, SPI_CS);
+    display.epd2.selectSPI(hspi, SPISettings(4000000, MSBFIRST, SPI_MODE0));
     display.init(115200);          // 串口使能 初始化完全刷新使能 复位时间 ret上拉使能
     display.setRotation(ROTATION); // 设置屏幕旋转1和3是横向  0和2是纵向
     u8g2Fonts.begin(display);
