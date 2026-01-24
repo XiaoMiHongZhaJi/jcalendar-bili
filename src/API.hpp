@@ -5,6 +5,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_http_client.h>
+#include "battery.h"
 
 struct Weather {
     String time;
@@ -16,6 +17,7 @@ struct Weather {
     String icon;
     String text;
     String updateTime;
+    std::vector<String> futureTags;
 };
 
 // 定义单词结构体
@@ -24,17 +26,46 @@ struct Word {
     String en;
 };
 
+struct Bilibili {
+    String userName;       // 昵称
+
+    String follower;       // 粉丝数
+    String allView;        // 总播放量
+    String allLikes;       // 总点赞数
+
+    String addFollower;   // 新增粉丝数
+    String addAllView;    // 新增总播放量
+    String addAllLikes;   // 新增总点赞数
+
+    String comment;       // 新视频评论数
+    String view;          // 新视频播放量
+    String likes;         // 新视频点赞数
+
+    String addComment;    // 新视频新增评论数
+    String addView;       // 新视频新增播放量
+    String addLikes;      // 新视频新增点赞数
+
+    String videoDeltaDays; // 上次视频距今
+    String liveDeltaDays;  // 上次直播距今
+
+    std::vector<String> videoDateTags; // 视频发布日期tags
+    std::vector<String> liveDateTags;  // 直播日期tags
+};
+
+struct Holiday {
+    int year;
+    int month;
+    int holidays[16];
+    int length;
+};
+
 // 定义返回数据结构体
 
 struct ApiInfo {
     Weather weather;
     std::vector<Word> dailyWords;
-};
-
-struct Bilibili {
-    uint64_t follower;
-    uint64_t view;
-    uint64_t likes;
+    Bilibili bili;
+    Holiday holiday;
 };
 
 template<uint8_t MAX_RETRY = 3>
@@ -59,11 +90,11 @@ public:
     }
 
     // 和风天气 - 实时天气: https://dev.qweather.com/docs/api/weather/weather-now/
-    bool getApiInfo(ApiInfo& apiInfo, const char* host, const char* locid) {
+    bool getApiInfo(ApiInfo& apiInfo, String host, String locid) {
         return getRestfulAPI(
-            "http://" + String(host) + "/apiInfo?location=" + String(locid), [&apiInfo](JsonDocument& json) {
+            "http://" + host + "/apiInfo?location=" + locid + "&battery=" + readBatteryVoltage(), [&apiInfo](JsonDocument& json) {
                 if (strcmp(json["code"], "200") != 0) {
-                    Serial.print(F("Get weather failed, error: "));
+                    Serial.println("Get weather failed, error: ");
                     Serial.println(json["code"].as<const char*>());
                     return false;
                 }
@@ -79,6 +110,14 @@ public:
                 weatherResult.windSpeed = weather["windSpeed"].as<const char*>();
                 weatherResult.icon = weather["icon"].as<const char*>();
                 weatherResult.text = weather["text"].as<const char*>();
+
+                JsonArray weatherFuture = weather["future"];
+                std::vector<String> weatherFutureTags;
+                for (const char* tag : weatherFuture) {
+                    weatherFutureTags.emplace_back(tag);
+                }
+                weatherResult.futureTags = weatherFutureTags;
+                
                 apiInfo.weather = weatherResult;
 
                 JsonArray dailyWords = json["dailyWords"];
@@ -92,40 +131,56 @@ public:
                 }
                 apiInfo.dailyWords = dailyWordsResult;
 
-                return true;
-            });
-    }
+                JsonObject bili = json["biliInfo"];
+                if (!bili.isNull()) {
+                    Bilibili biliResult;
+                    biliResult.userName = bili["userName"].as<const char*>();
+                    biliResult.follower = bili["follower"].as<const char*>();
+                    biliResult.allView = bili["allView"].as<const char*>();
+                    biliResult.allLikes = bili["allLikes"].as<const char*>();
+                    biliResult.addFollower = bili["addFollower"].as<const char*>();
+                    biliResult.addAllView = bili["addAllView"].as<const char*>();
+                    biliResult.addAllLikes = bili["addAllLikes"].as<const char*>();
+                    biliResult.comment = bili["comment"].as<const char*>();
+                    biliResult.view = bili["view"].as<const char*>();
+                    biliResult.likes = bili["likes"].as<const char*>();
+                    biliResult.addComment = bili["addComment"].as<const char*>();
+                    biliResult.addView = bili["addView"].as<const char*>();
+                    biliResult.addLikes = bili["addLikes"].as<const char*>();
+                    biliResult.videoDeltaDays = bili["videoDeltaDays"].as<const char*>();
+                    biliResult.liveDeltaDays = bili["liveDeltaDays"].as<const char*>();
 
-    // B站粉丝
-    // https://api.bilibili.com/x/relation/stat?vmid=4778211
-    bool getFollower(Bilibili& result, uint32_t uid) {
-        return getRestfulAPI("https://api.bilibili.com/x/relation/stat?vmid=" + String(uid), [&result](JsonDocument& json) {
-            if (json["code"] != 0) {
-                Serial.print(F("Get bilibili follower failed, error: "));
-                Serial.println(json["message"].as<const char*>());
-                return false;
-            }
-            result.follower = json["data"]["follower"];
-            return true;
-            });
-    }
+                    JsonArray videoDateTags = bili["videoDateTags"];
+                    std::vector<String> videoDateTagsResult;
+                    for (const char* tag : videoDateTags) {
+                        videoDateTagsResult.emplace_back(tag);
+                    }
+                    biliResult.videoDateTags = videoDateTagsResult;
 
-    // B站总播放量和点赞数
-    // https://api.bilibili.com/x/space/upstat?mid=4778211
-    bool getLikes(Bilibili& result, uint32_t uid, const char* cookie) {
-        return getRestfulAPI(
-            "https://api.bilibili.com/x/space/upstat?mid=" + String(uid), [&result](JsonDocument& json) {
-                if (json["code"] != 0) {
-                    Serial.print(F("Get bilibili likes failed, error: "));
-                    Serial.println(json["message"].as<const char*>());
-                    return false;
+                    JsonArray liveDateTags = bili["liveDateTags"];
+                    std::vector<String> liveDateTagsResult;
+                    for (const char* tag : liveDateTags) {
+                        liveDateTagsResult.emplace_back(tag);
+                    }
+                    biliResult.liveDateTags = liveDateTagsResult;
+
+                    apiInfo.bili = biliResult;
                 }
-                result.view = json["data"]["archive"]["view"];
-                result.likes = json["data"]["likes"];
+
+                JsonObject holiday = json["holiday"];
+                if (!bili.isNull()) {
+                    Holiday holidayResult;
+                    holidayResult.year = holiday["year"].as<int>();
+                    holidayResult.month = holiday["month"].as<int>();
+                    holidayResult.length = holiday["length"].as<int>();
+                    JsonArray array = holiday["holidays"].as<JsonArray>();
+                    for (int i = 0; i < holidayResult.length; i++) {
+                        holidayResult.holidays[i] = array[i].as<int>();
+                    }
+                    apiInfo.holiday = holidayResult;
+                }
+
                 return true;
-            },
-            [this, &cookie]() {
-                http.addHeader("Cookie", String("SESSDATA=") + cookie + ";");
             });
     }
 
@@ -179,9 +234,8 @@ private:
                     DeserializationError error = deserializeJson(doc, str);
 
                     if (error) {
-                        Serial.print(F("JSON Parse error: "));
-                        Serial.println(error.c_str());
-                        Serial.println(str);
+                        Serial.printf("JSON Parse error: %s\n", error.c_str());
+                        Serial.printf("Received data: %s\n", str);
                         shouldRetry = (error == DeserializationError::IncompleteInput);
                     } else {
                         http.end();
@@ -189,8 +243,7 @@ private:
                     }
 
                 } else {
-                    Serial.print(F("HTTP Error: "));
-                    Serial.println(http.errorToString(httpCode));
+                    Serial.printf("HTTP Error: %d\n", httpCode);
                     shouldRetry = (
                         httpCode == HTTPC_ERROR_CONNECTION_REFUSED ||
                         httpCode == HTTPC_ERROR_CONNECTION_LOST ||
@@ -200,12 +253,12 @@ private:
 
                 http.end();
             } else {
-                Serial.println(F("HTTP begin failed"));
+                Serial.println("HTTP begin failed");
             }
 
             if (!shouldRetry) break;
 
-            Serial.println(F("Retry after 5 seconds..."));
+            Serial.println("Retry after 5 seconds...");
             delay(5000);
         }
 

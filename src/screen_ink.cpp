@@ -1,7 +1,6 @@
 #include "screen_ink.h"
 #include <api_info.h>
 #include <API.hpp>
-#include "holiday.h"
 #include "nongli.h"
 #include <_preference.h>
 #include <U8g2_for_Adafruit_GFX.h>
@@ -114,22 +113,8 @@ void draw_cal_year() {
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
     u8g2Fonts.setCursor(calLayout.yearX, calLayout.yearY);
     u8g2Fonts.setFont(u8g2_font_fub25_tn);
-    u8g2Fonts.print(String(tmInfo.tm_year + 1900).c_str());
-    u8g2Fonts.setFont(FONT_TEXT);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-    u8g2Fonts.print("年");
-    u8g2Fonts.setFont(u8g2_font_fub25_tn);
-    u8g2Fonts.setForegroundColor(todayColor);
-    u8g2Fonts.print(String(tmInfo.tm_mon + 1).c_str());
-    u8g2Fonts.setFont(FONT_TEXT);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-    u8g2Fonts.print("月");
-    u8g2Fonts.setFont(u8g2_font_fub25_tn);
-    u8g2Fonts.setForegroundColor(todayColor);
-    u8g2Fonts.printf(String(tmInfo.tm_mday).c_str());
-    u8g2Fonts.setFont(FONT_TEXT);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
-    u8g2Fonts.print("日");
+    String dateStr = String(tmInfo.tm_year + 1900) + "." + String(tmInfo.tm_mon + 1) + "." + String(tmInfo.tm_mday);
+    u8g2Fonts.print(dateStr.c_str());
 }
 
 void draw_cal_days() {
@@ -159,80 +144,46 @@ void draw_cal_days() {
     int yday1 = tmInfo.tm_yday - tmInfo.tm_mday + 1;
 
     // 确认哪些日期需要打tag
-    char tags[31] = { 0 };
-    int indexBegin = 0;
-    while (_tag_days_str.length() >= (indexBegin + 9)) {
-        String y = _tag_days_str.substring(indexBegin, indexBegin + 4);
-        String m = _tag_days_str.substring(indexBegin + 4, indexBegin + 6);
-        String d = _tag_days_str.substring(indexBegin + 6, indexBegin + 8);
-        char t = _tag_days_str.charAt(indexBegin + 8);
+    Bilibili* bili = bili_info();
+    std::vector<String> videoDateTags = bili->videoDateTags;
+    std::vector<String> liveDateTags = bili->liveDateTags;
 
-        if ((y.equals(String(tmInfo.tm_year + 1900)) || y.equals("0000")) && (m.equals(String(tmInfo.tm_mon + 1)) || m.equals("00"))) {
-            tags[d.toInt()] = t;
-        }
+    // 天气预报
+    std::vector<String> futureTags = weather_data()->futureTags;
 
-        // Serial.printf("Format: %s, %s, %s, %c\n", y.c_str(), m.c_str(), d.c_str(), t);
+    Holiday* holiday = holiday_info();
 
-        indexBegin = indexBegin + 9;
-        while (indexBegin < _tag_days_str.length() && (_tag_days_str.charAt(indexBegin) < '0' || _tag_days_str.charAt(indexBegin) > '9')) { // 搜索字符串直到下个字符是0-9之间的
-            indexBegin++;
-        }
-    }
+    // 先判断当前月是否有假期数据
+    bool hasHoliday = (holiday->year == tmInfo.tm_year + 1900) && (holiday->month == tmInfo.tm_mon + 1);
 
-    Holiday _holiday;
-    Preferences pref;
-    pref.begin(PREF_NAMESPACE);
-    size_t holiday_size = pref.getBytesLength(PREF_HOLIDAY);
-    if (holiday_size > 0) {
-        pref.getBytes(PREF_HOLIDAY, &_holiday, holiday_size);
-    }
-    pref.end();
-
-    if (_holiday.year != tmInfo.tm_year + 1900 || _holiday.month != tmInfo.tm_mon + 1) {
-        _holiday = {};
-    }
-
-    int jqIndex = 0;
-    int jrIndex = 0;
     int shiftDay = (wday1 - _week_1st) >= 0 ? 0 : 7;
+
     for (size_t iDay = 0; iDay < totalDays; iDay++) {
-        uint8_t num = wday1 + iDay - _week_1st + shiftDay; // 根据每周首日星期做偏移
-        uint8_t column = num % 7; //(0~6)
-        uint8_t row = num / 7;    //(0~4)
+        uint8_t num = wday1 + iDay - _week_1st + shiftDay;
+        uint8_t column = num % 7;
+        uint8_t row = num / 7;
         if (row == 5) row = 0;
+
         int16_t x = calLayout.daysX + 4 + column * 56;
         int16_t y = calLayout.daysY + row * 44;
 
-        // 周六、日，字体红色
-        uint16_t color;
-        if ((wday1 + iDay) % 7 == 0 || (wday1 + iDay) % 7 == 6) {
-            color = GxEPD_RED;
-        } else {
-            color = GxEPD_BLACK;
-        }
+        // 默认颜色：周末红，其余黑
+        uint16_t color = ((wday1 + iDay) % 7 == 0 || (wday1 + iDay) % 7 == 6) ? GxEPD_RED : GxEPD_BLACK;
 
-        if (tmInfo.tm_year + 1900 == _holiday.year && tmInfo.tm_mon + 1 == _holiday.month) {
-            uint8_t holidayIndex = 0;
-            for (; holidayIndex < _holiday.length; holidayIndex++) {
-                if (abs(_holiday.holidays[holidayIndex]) == (iDay + 1)) {
-                    // 显示公休、调班logo和颜色
-                    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
-                    if (_holiday.holidays[holidayIndex] > 0) { // 公休
-                        color = GxEPD_RED;
-                        u8g2Fonts.setForegroundColor(color);
-                        u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-                        u8g2Fonts.drawUTF8(x + 44, y + 11, "\u006c");
-                    } else if (_holiday.holidays[holidayIndex] < 0) { // 调班
-                        color = GxEPD_BLACK;
-                        u8g2Fonts.setForegroundColor(color);
-                        u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-                        u8g2Fonts.drawUTF8(x + 44, y + 11, "\u0064");
-                    }
+        if (hasHoliday) {
+            for (uint8_t hIdx = 0; hIdx < holiday->length; hIdx++) {
+                if (abs(holiday->holidays[hIdx]) == (iDay + 1)) {
+                    // 公休红色，调班黑色
+                    color = (holiday->holidays[hIdx] > 0) ? GxEPD_RED : GxEPD_BLACK;
+                    // u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+                    // 可选：绘制图标
+                    // u8g2Fonts.drawUTF8(x + 44, y + 11, (holiday.holidays[hIdx] > 0) ? "\u006c" : "\u0064");
                     break;
                 }
             }
         }
-        u8g2Fonts.setForegroundColor(color); // 设置整体颜色
+
+        u8g2Fonts.setForegroundColor(color);
         u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
 
         // 画日历日期数字
@@ -251,7 +202,8 @@ void draw_cal_days() {
 
         bool isJq = false; // 是否节气
         int accDays0 = tmInfo.tm_yday + 1 - tmInfo.tm_mday; // 本月0日的积累日（tm_yday 从0开始，tm_mday从1开始, i从0开始）
-        for (; jqIndex < 24; jqIndex++) {
+
+        for (int jqIndex = 0; jqIndex < 24; jqIndex++) {
             if (accDays0 + iDay + 1 < jqAccDate[jqIndex]) {
                 break;
             }
@@ -263,7 +215,7 @@ void draw_cal_days() {
         }
         bool isJr = false; // 是否节日
         int currentDateNum = (tmInfo.tm_mon + 1) * 100 + iDay + 1;
-        for (; jrIndex < jrLength; jrIndex++) {
+        for (int jrIndex = 0; jrIndex < jrLength; jrIndex++) {
             if (currentDateNum < jrDate[jrIndex]) {
                 break;
             }
@@ -335,31 +287,61 @@ void draw_cal_days() {
             todayLunarDay = (isLeapMon == 0 ? "" : "闰") + nl_mon_str[lunarMon] + "月" + lunarStr;
         }
 
-        // 画日期Tag
-        const char* tagChar = NULL;
-        if (tags[iDay + 1] == 'a') { //tag
-            tagChar = "\u0042";
-        } else if (tags[iDay + 1] == 'b') { // dollar
-            tagChar = "\u0024";
-        } else if (tags[iDay + 1] == 'c') { // smile
-            tagChar = "\u0053";
-        } else if (tags[iDay + 1] == 'd') { // warning
-            tagChar = "\u0021";
+        // 画直播 Tag
+        if (iDay >= liveDateTags.size()) {
+            Serial.println("liveDateTags index out of range: " + String(iDay));
+            continue;
         }
-        if (tagChar != NULL) {
+        String liveDateTag = liveDateTags[iDay];
+        if (strcmp(liveDateTag.c_str(), "0") != 0) {
+
+            Serial.println("draw live tag:" + liveDateTag + " for day " + String(iDay + 1));
+
             u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
             u8g2Fonts.setForegroundColor(GxEPD_RED);
-            u8g2Fonts.setFont(u8g2_font_twelvedings_t_all);
-            int iconX = numX - u8g2Fonts.getUTF8Width(tagChar) - 1; // 数字与tag间间隔1像素
-            iconX = iconX <= (x + 3) ? (iconX + 1) : iconX; // 防止icon与今日框线产生干涉。
-            int iconY = y + 15;
-            u8g2Fonts.drawUTF8(iconX, iconY, tagChar);
+            u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+            u8g2Fonts.setCursor(x + 8, y + 12);
+            if (iDay < 9) {
+                u8g2Fonts.setCursor(x + 10, y + 12);
+            }
+            u8g2Fonts.print(liveDateTag);
+        }
+
+        // 画视频 Tag
+        String videoDateTag = videoDateTags[iDay];
+        if (strcmp(videoDateTag.c_str(), "0") != 0) {
+
+            Serial.println("draw video tag:" + videoDateTag + " for day " + String(iDay + 1));
+
+            u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+            u8g2Fonts.setForegroundColor(GxEPD_RED);
+            u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+            u8g2Fonts.setCursor(x + 42, y + 12);
+            if (iDay < 9) {
+                u8g2Fonts.setCursor(x + 40, y + 12);
+            }
+            u8g2Fonts.print(videoDateTag);
+        }
+
+        // 画天气预报 Tag
+        String futureTag = futureTags[iDay];
+        if (strcmp(futureTag.c_str(), "0") != 0) {
+
+            Serial.println("draw weather future tag:" + futureTag + " for day " + String(iDay + 1));
+
+            u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+            u8g2Fonts.setForegroundColor(GxEPD_RED);
+            u8g2Fonts.setFont(u8g2_font_qweather_icon_10);
+            u8g2Fonts.setCursor(x + 42, y + 15);
+            if (iDay < 9) {
+                u8g2Fonts.setCursor(x + 40, y + 15);
+            }
+            u8g2Fonts.print(futureTag);
         }
     }
 }
 
 // 画天气信息
-#include "API.hpp"
 void draw_weather() {
 
     u8g2Fonts.setFontMode(1);
@@ -379,9 +361,163 @@ void draw_weather() {
     if (wNow->windScale[0] == '0') {
         wind = "无风";
     }
-    u8g2Fonts.setFont(FONT_SUB);
-    u8g2Fonts.setCursor(40, 55);
-    u8g2Fonts.printf("%s %s°C | %s%% %s", wNow->text, wNow->temp, wNow->humidity, wind.c_str());
+    u8g2Fonts.setFont(FONT_TEXT);
+    u8g2Fonts.setCursor(38, 54);
+    u8g2Fonts.printf("%s %s°C %s%% %s", wNow->text, wNow->temp, wNow->humidity, wind.c_str());
+}
+
+// 画bili数据
+void draw_bili_info() {
+
+    u8g2Fonts.setFontMode(1);
+    u8g2Fonts.setFontDirection(0);
+    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+    // bili数据
+    Bilibili* bili = bili_info();
+    String addAllView = bili->addAllView;
+    String addAllLikes = bili->addAllLikes;
+    String addFollower = bili->addFollower;
+
+    int left_offset = 0;
+    if (addAllView.length() >=3 || addAllLikes.length() >=3 || addFollower.length() >=3) {
+        left_offset = 4;
+    } else if (addAllView.length() >=2 || addAllLikes.length() >=2 || addFollower.length() >=2) {
+        left_offset = 12;
+    } else if (addAllView[0] == '0' && addAllLikes[0] == '0' && addFollower[0] == '0') {
+        left_offset = 32;
+    } else if (addAllView.length() >=1 || addAllLikes.length() >=1 || addFollower.length() >=1) {
+        left_offset = 20;
+    }
+
+    Serial.print("left_offset: " + String(left_offset));
+    Serial.flush();
+    
+    // 全部播放
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+    u8g2Fonts.setCursor(202 + left_offset, 20);
+    u8g2Fonts.print("\u00e9");
+    
+    u8g2Fonts.setFont(u8g2_font_8x13_tf);
+    u8g2Fonts.setCursor(212 + left_offset, 20);
+    u8g2Fonts.print(bili->allView);
+
+    if (addAllView[0] != '0') {
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+        u8g2Fonts.setCursor(246 + left_offset, 20);
+        u8g2Fonts.print("\u0052");
+        
+        u8g2Fonts.setFont(u8g2_font_8x13_tf);
+        u8g2Fonts.setCursor(256 + left_offset, 20);
+        u8g2Fonts.print(addAllView);
+    }
+    
+    // 最新播放
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+    u8g2Fonts.setCursor(300, 20);
+    u8g2Fonts.print("\u00e9");
+    
+    u8g2Fonts.setFont(u8g2_font_8x13_tf);
+    u8g2Fonts.setCursor(310, 20);
+    u8g2Fonts.print(bili->view);
+
+    if (bili->addView[0] != '0') {
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+        u8g2Fonts.setCursor(344, 20);
+        u8g2Fonts.print("\u0052");
+        
+        u8g2Fonts.setFont(u8g2_font_8x13_tf);
+        u8g2Fonts.setCursor(354, 20);
+        u8g2Fonts.print(bili->addView);
+    }
+    
+    // 全部点赞
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+    u8g2Fonts.setCursor(202 + left_offset, 38);
+    u8g2Fonts.print("\u010c");
+    
+    u8g2Fonts.setFont(u8g2_font_8x13_tf);
+    u8g2Fonts.setCursor(212 + left_offset, 38);
+    u8g2Fonts.print(bili->allLikes);
+
+    if (addAllLikes[0] != '0') {
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+        u8g2Fonts.setCursor(246 + left_offset, 38);
+        u8g2Fonts.print("\u0052");
+        
+        u8g2Fonts.setFont(u8g2_font_8x13_tf);
+        u8g2Fonts.setCursor(256 + left_offset, 38);
+        u8g2Fonts.print(addAllLikes);
+    }
+    
+    // 最新点赞
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+    u8g2Fonts.setCursor(300, 38);
+    u8g2Fonts.print("\u010c");
+    
+    u8g2Fonts.setFont(u8g2_font_8x13_tf);
+    u8g2Fonts.setCursor(310, 38);
+    u8g2Fonts.print(bili->likes);
+
+    if (bili->addLikes[0] != '0') {
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+        u8g2Fonts.setCursor(344, 38);
+        u8g2Fonts.print("\u0052");
+        
+        u8g2Fonts.setFont(u8g2_font_8x13_tf);
+        u8g2Fonts.setCursor(354, 38);
+        u8g2Fonts.print(bili->addLikes);
+    }
+    
+    // 全部粉丝
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+    u8g2Fonts.setCursor(202 + left_offset, 56);
+    u8g2Fonts.print("\u00e4");
+    
+    u8g2Fonts.setFont(u8g2_font_8x13_tf);
+    u8g2Fonts.setCursor(212 + left_offset, 56);
+    u8g2Fonts.print(bili->follower);
+
+    if (addFollower[0] != '0') {
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+        u8g2Fonts.setCursor(246 + left_offset, 56);
+        u8g2Fonts.print("\u0052");
+        
+        u8g2Fonts.setFont(u8g2_font_8x13_tf);
+        u8g2Fonts.setCursor(256 + left_offset, 56);
+        u8g2Fonts.print(addFollower);
+    }
+    
+    // 最新评论
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+    u8g2Fonts.setCursor(300, 56);
+    u8g2Fonts.print("\u0087");
+    
+    u8g2Fonts.setFont(u8g2_font_8x13_tf);
+    u8g2Fonts.setCursor(310, 56);
+    u8g2Fonts.print(bili->comment);
+
+    if (bili->addComment[0] != '0') {
+        u8g2Fonts.setForegroundColor(GxEPD_RED);
+        u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
+        u8g2Fonts.setCursor(344, 56);
+        u8g2Fonts.print("\u0052");
+        
+        u8g2Fonts.setFont(u8g2_font_8x13_tf);
+        u8g2Fonts.setCursor(354, 56);
+        u8g2Fonts.print(bili->addComment);
+    }
+
 }
 
 // Draw err
@@ -408,18 +544,18 @@ void draw_battery(int voltage) {
 
     // 电池icon
     const char* iconStr = "";
-    if(voltage >= 4100) { // 满电
+    if(voltage >= 3850) { // 满电
         iconStr = "\ue24b";
-    } else if (voltage >= 3900) { // 多电
+    } else if (voltage >= 3800) { // 多电
         iconStr = "\ue249";
-    } else if (voltage >= 3700) { // 中电量
+    } else if (voltage >= 3750) { // 中电量
         iconStr = "\ue247";
-    } else if (voltage >= 3500) { // 低电量
+    } else if (voltage >= 3700) { // 低电量
         iconStr = "\ue245";
     } else { // 空
         iconStr = "\ue242";
     }
-    u8g2Fonts.drawUTF8(400 - 12 - 4, 14, iconStr);
+    u8g2Fonts.drawUTF8(400 - 16, 14, iconStr);
 }
 
 // 横向虚线
@@ -699,25 +835,31 @@ void show_screen_task(void* param) {
     display.firstPage();
     display.fillScreen(GxEPD_WHITE);
     do {
-        if (_screen_index == 1 || _screen_index == 3 || _screen_index == 5) {
-            drawEnglishWords(_screen_index);
-        } else if (_screen_index == 2 || _screen_index == 4 || _screen_index == 6) {
-            drawChineseWords(_screen_index);
+        if (voltage < 3600) {
+            Serial.println("[WARN]电量低于3.6v，警告并系统休眠。");
+            si_warning("电量不足，请充电！");
         } else {
-            _screen_index = 0;
-            draw_cal_days();
-            draw_cal_header();
-        }
+            if (_screen_index == 1 || _screen_index == 3 || _screen_index == 5) {
+                drawEnglishWords(_screen_index);
+            } else if (_screen_index == 2 || _screen_index == 4 || _screen_index == 6) {
+                drawChineseWords(_screen_index);
+            } else {
+                _screen_index = 0;
+                draw_cal_days();   // 日历
+                draw_cal_header(); // 一二三四五六日
+            }
 
-        draw_cal_year();
+            draw_cal_year(); // 上方日期
 
-        if (api_info_status() == 1) {
-            draw_weather();
-        } else {
-            draw_err("获取天气数据失败");
-        }
-        if (voltage > 3000 && voltage < 4300) {
-            draw_battery(voltage);
+            if (api_info_status() == 1) {
+                draw_weather();   // 天气
+                draw_bili_info(); // bili数据
+            } else {
+                draw_err("获取数据失败");
+            }
+            if (voltage > 3500 && voltage < 4300) {
+                draw_battery(voltage);
+            }
         }
     } while (display.nextPage());
     

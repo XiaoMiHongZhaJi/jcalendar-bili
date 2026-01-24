@@ -11,6 +11,8 @@ int8_t _api_info_status = -1;
 ApiInfo _api_info = {};
 std::vector<Word> _daily_words;
 Weather _weather = {};
+Bilibili _bili = {};
+Holiday _holiday = {};
 
 int8_t api_info_status() {
     return _api_info_status;
@@ -18,6 +20,14 @@ int8_t api_info_status() {
 
 Weather* weather_data() {
     return &_weather;
+}
+
+Bilibili* bili_info() {
+    return &_bili;
+}
+
+Holiday* holiday_info() {
+    return &_holiday;
 }
 
 std::vector<Word> daily_words() {
@@ -30,12 +40,14 @@ void task_weather(void* param) {
     API<> api;
 
     // 实时天气
-    bool success = api.getApiInfo(_api_info, _qweather_host.c_str(), _qweather_loc.c_str());
+    bool success = api.getApiInfo(_api_info, _qweather_host, _qweather_loc);
     
     if (success) {
         _api_info_status = 1;
         _weather = _api_info.weather;
         _daily_words = _api_info.dailyWords;
+        _bili = _api_info.bili;
+        _holiday = _api_info.holiday;
         Serial.println("_daily_words size: " + String(_daily_words.size()));
     } else {
         _api_info_status = 2;

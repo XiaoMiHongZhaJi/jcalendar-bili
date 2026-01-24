@@ -11,6 +11,7 @@
 
 #define PREF_QWEATHER_HOST "QWEATHER_HOST" // QWEATHER HOST
 #define PREF_QWEATHER_LOC "QWEATHER_LOC" // 地理位置
+#define PREF_TIME_TO_SLEEP_MS "TIME_TO_SLEEP_MS" // 休眠时间，单位ms
 
 // 假期信息，tm年，假期日(int8)，假期日(int8)...
 #define PREF_HOLIDAY "HOLIDAY"

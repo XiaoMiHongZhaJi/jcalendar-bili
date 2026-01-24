@@ -4,7 +4,6 @@
 #include "Arduino.h"
 #include <_preference.h>
 #include <API.hpp>
-#include "holiday.h"
 
 TaskHandle_t* _handler;
 int _status = SYNC_STATUS_IDLE;
@@ -44,24 +43,6 @@ void _sntp_task(void* pvParameter) {
     struct tm tmInfo = { 0 };
     localtime_r(&now, &tmInfo);
     Serial.printf("Now: %d-%02d-%02d %02d:%02d:%02d\r\n", tmInfo.tm_year + 1900, tmInfo.tm_mon + 1, tmInfo.tm_mday, tmInfo.tm_hour, tmInfo.tm_min, tmInfo.tm_sec);
-    
-    // 获取节假日信息并缓存
-    Holiday _holiday;
-        Preferences pref;
-        pref.begin(PREF_NAMESPACE);
-        size_t holiday_size = pref.getBytesLength(PREF_HOLIDAY);
-        if (holiday_size > 0) {
-            pref.getBytes(PREF_HOLIDAY, &_holiday, holiday_size);
-        }
-        pref.end();
-    
-        if (_holiday.year != tmInfo.tm_year + 1900 || _holiday.month != tmInfo.tm_mon + 1) {
-            if (getHolidays(_holiday, tmInfo.tm_year + 1900, tmInfo.tm_mon + 1)) {
-                pref.begin(PREF_NAMESPACE);
-                pref.putBytes(PREF_HOLIDAY, &_holiday, sizeof(_holiday));
-                pref.end();
-            }
-        }
 
     _status = re;
     vTaskDelete(NULL); // 删除任务

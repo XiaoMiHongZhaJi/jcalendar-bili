@@ -6,6 +6,8 @@
 int8_t api_info_status();
 Weather* weather_data();
 std::vector<Word> daily_words();
+Bilibili* bili_info();
+Holiday* holiday_info();
 void api_info_exec(int status = 0);
 void api_info_stop();
 
