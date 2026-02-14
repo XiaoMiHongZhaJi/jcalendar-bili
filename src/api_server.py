@@ -1,18 +1,32 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, after_this_request, abort, send_file
 import json
 import random
 import requests
 from datetime import datetime, timedelta, timezone
 import logging
 import re
+import os
 
 QWEATHER_URL = "https://pc487rtvyv.re.qweatherapi.com/v7/weather/now"
 QWEATHER_URL_2 = "https://pc487rtvyv.re.qweatherapi.com/v7/weather/30d"
 API_KEY = "xxx"
 LOCATION = "101021600" # 上海市
 CET6_WORDS_PATH = "/root/sh/cet6_words.json"
+
+BIN_FILE_NAME = "jcalendar-bili.bin"
+BIN_FILE_PATH = "/root/sh/" + BIN_FILE_NAME
+BASE_DOMAIN = "http://192.168.10.225:5000"
+
 WORDS_HISTORY_DAYS = 3
 BILI_SESSDATA = "xxx"
+BILI_SESSDATA_FILE = ""
+
+if not BILI_SESSDATA:
+    # 读取 JSON 文件
+    with open(BILI_SESSDATA_FILE, 'r') as file:
+        data = json.load(file)
+    # 获取 cookies 中第一个对象的 value 值
+    BILI_SESSDATA = data['cookie_info']['cookies'][0]['value']
 
 COOKIES = {
     "SESSDATA": BILI_SESSDATA
@@ -41,12 +55,43 @@ bili_cache = {}
 api_info_cache = {}
 
 
+@app.route(f"/ota/{BIN_FILE_NAME}", methods=["GET"])
+def download_ota():
+    if not os.path.exists(BIN_FILE_PATH):
+        abort(404)
+
+    @after_this_request
+    def remove_file(response):
+        try:
+            os.remove(BIN_FILE_PATH)
+            logger.warning("OTA file removed after download.")
+        except Exception as e:
+            logger.error(f"Failed to remove OTA file: {e}")
+        return response
+
+    response = send_file(
+        BIN_FILE_PATH,
+        mimetype="application/octet-stream",
+        as_attachment=True
+    )
+
+    return response
+
+
 @app.route("/apiInfo")
 def apiInfo():
     battery = request.args.get('battery') or None
     location = request.args.get('location') or LOCATION
     logger.info(f"/apiInfo called with battery={battery}, location={location}")
 
+    if os.path.exists(BIN_FILE_PATH):
+        logger.warning("OTA update file exists, returning OTA info.")
+        return jsonify({
+            "ota_update": True,
+            "ota_url": f"{BASE_DOMAIN}/ota/{BIN_FILE_NAME}",
+            "code": "200"
+        })
+    
     global api_info_cache
     need_update = False
 
@@ -60,14 +105,28 @@ def apiInfo():
             logger.info(f"apiInfo cache is outdated, last update: {last_update}, location: {location}")
     if need_update:
         logger.info("Updating apiInfo cache, location: " + location)
+        daily_words = get_daily_words()
+        # daily_words = None
+        logger.debug(daily_words)
+
+        bili_info = get_bili_info()
+        logger.debug(bili_info)
+
+        holiday = get_holiday()
+        logger.debug(holiday)
+
+        weather = get_weather(location)
+        logger.debug(weather)
+
         api_info_cache[location] = {
             "code": "200",
-            "weather": get_weather(location),
-            "dailyWords": get_daily_words(),
-            "biliInfo": get_bili_info(),
-            "holiday": get_holiday(),
+            "weather": weather,
+            "dailyWords": daily_words,
+            "biliInfo": bili_info,
+            "holiday": holiday,
             "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+        logger.debug(api_info_cache)
     else:
         logger.info(f"Using cached apiInfo, last update: {api_info_cache[location].get('updateTime','')}, location: {location}")
 
@@ -455,7 +514,6 @@ def get_holiday(year_month=None):
     api_url = f"https://timor.tech/api/holiday/year/{year_month}"
     try:
         resp = requests.get(api_url, headers=HEADERS, )
-        resp.raise_for_status()
         data = resp.json()
     except Exception as e:
         return jsonify({"error": f"Failed to fetch holiday data: {str(e)}"}), 500

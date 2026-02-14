@@ -59,6 +59,11 @@ struct Holiday {
     int length;
 };
 
+struct OTAInfo {
+    bool updateAvailable;
+    String otaUrl;
+};
+
 // 定义返回数据结构体
 
 struct ApiInfo {
@@ -66,6 +71,7 @@ struct ApiInfo {
     std::vector<Word> dailyWords;
     Bilibili bili;
     Holiday holiday;
+    OTAInfo otaInfo;
 };
 
 template<uint8_t MAX_RETRY = 3>
@@ -96,6 +102,15 @@ public:
                 if (strcmp(json["code"], "200") != 0) {
                     Serial.println("Get weather failed, error: ");
                     Serial.println(json["code"].as<const char*>());
+                    return false;
+                }
+
+                if (json["ota_update"].as<bool>()) {
+                    Serial.println("OTA update available, skipping data parsing.");
+                    OTAInfo ota;
+                    ota.updateAvailable = true;
+                    ota.otaUrl = json["ota_url"].as<const char*>();
+                    apiInfo.otaInfo = ota;
                     return false;
                 }
 
