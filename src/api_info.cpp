@@ -2,6 +2,7 @@
 #include <_preference.h>
 #include <HTTPUpdate.h>
 #include "_sntp.h"
+#include "ConfigManager.cpp"
 
 TaskHandle_t API_HANDLER;
 
@@ -109,12 +110,11 @@ void api_info_exec(int status) {
         return;
     }
 
-    // Preference 获取配置信息。
-    Preferences pref;
-    pref.begin(PREF_NAMESPACE);
-    _qweather_host = pref.getString(PREF_QWEATHER_HOST, "default.host.com");
-    _qweather_loc = pref.getString(PREF_QWEATHER_LOC, "");
-    pref.end();
+    ConfigManager cfg;
+    Config c = cfg.get();
+
+    _qweather_host = c.api_host;
+    _qweather_loc = c.qweather_loc;
 
     if (_qweather_loc.length() == 0) {
         Serial.println("Qweather key/locationID invalid.");

@@ -9,6 +9,7 @@
 #include "font.h"
 #include "battery.h"
 #include "wiring.h"
+#include "ConfigManager.cpp"
 
 #define ROTATION 0
 #define FONT_TEXT u8g2_font_wqy16_t_gb2312 // 224825bytes，最大字库（天气描述中“霾”，只有此字库中有）
@@ -32,9 +33,6 @@ int jqAccDate[24]; // 节气积累日
 const int jrLength = 11;
 const int jrDate[] = { 101, 214, 308, 312, 501, 504, 601, 701, 801, 910, 1001, 1224, 1225 };
 const String jrText[] = { "元旦", "情人节", "妇女节", "植树节", "劳动节", "青年节", "儿童节", "建党节", "建军节", "教师节", "国庆节", "平安夜", "圣诞节" };
-
-int _screen_index = 0;
-
 
 struct tm tmInfo = { 0 }; // 日历显示用的时间
 
@@ -807,7 +805,10 @@ boolean get_datetime() {
  */
 void show_screen_task(void* param) {
     _screen_status = 0;
-    Serial.println("show_screen, _screen_index: " + String(_screen_index));
+    ConfigManager cfg;
+    Config c = cfg.get();
+    int screen_index = c.screen_index;
+    Serial.println("show_screen, screen_index: " + String(screen_index));
 
     if (!get_datetime()) { // 准备时间日期信息
         Serial.println("ERR: System time prepare failed.");
@@ -818,8 +819,6 @@ void show_screen_task(void* param) {
     }
     
     int voltage = readBatteryVoltage();
-
-    delay(100);
 
     Serial.println("[Task] screen update begin...");
     Serial.flush();
@@ -839,12 +838,11 @@ void show_screen_task(void* param) {
             Serial.println("[WARN]电量低于3.6v，警告并系统休眠。");
             si_warning("电量不足，请充电！");
         } else {
-            if (_screen_index == 1 || _screen_index == 3 || _screen_index == 5) {
-                drawEnglishWords(_screen_index);
-            } else if (_screen_index == 2 || _screen_index == 4 || _screen_index == 6) {
-                drawChineseWords(_screen_index);
+            if (screen_index % 2 == 1) {
+                drawEnglishWords(screen_index);
+            } else if (screen_index > 0 && screen_index % 2 == 0) {
+                drawChineseWords(screen_index);
             } else {
-                _screen_index = 0;
                 draw_cal_days();   // 日历
                 draw_cal_header(); // 一二三四五六日
             }
@@ -862,11 +860,6 @@ void show_screen_task(void* param) {
             }
         }
     } while (display.nextPage());
-    
-    Preferences pref;
-    pref.begin(PREF_NAMESPACE);
-    pref.putInt(PREF_SI_TYPE, _screen_index);
-    pref.end();
 
     display.powerOff();
     display.hibernate();
@@ -877,12 +870,11 @@ void show_screen_task(void* param) {
     vTaskDelete(NULL);
 }
 
-void show_screen(int screen_index) {
+void show_screen() {
 
     if (SCREEN_HANDLER != NULL) {
         vTaskDelete(SCREEN_HANDLER);
     }
-    _screen_index = screen_index;
     xTaskCreate(show_screen_task, "Screen", 4096, NULL, 2, &SCREEN_HANDLER);
 }
 

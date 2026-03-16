@@ -12,13 +12,6 @@
 #include "OneButton.h"
 #include "ConfigManager.cpp"
 
-/*
-  重构说明：
-  - 增加 ConfigManager：集中管理可配置项，支持临时（RAM）与持久（NVS）写入。
-  - 配置读取优先级：运行时临时配置 > NVS 中持久配置 > 内置默认值
-  - config 中包含：qweather_host, qweather_loc, screen_index, TIME_TO_SLEEP（单位 ms）等
-*/
-
 OneButton button(KEY_M, true);
 
 void IRAM_ATTR checkTicks() {
@@ -62,20 +55,17 @@ void print_wakeup_reason() {
     }
 }
 
-/* ---------- 全局 ConfigManager 实例 ---------- */
-ConfigManager cfg;
-
-/* ---------------- WiFiManager 参数（保持原来的参数对象） ---------------- */
+/* ---------------- WiFiManager 参数 ---------------- */
 WiFiManager wm;
-WiFiManagerParameter para_qweather_host("qweather_host", "天气服务器Host", "", 64);
-WiFiManagerParameter para_qweather_location("qweather_loc", "位置ID", "", 64); // 城市code
+WiFiManagerParameter para_api_host("api_host", "天气服务器Host", "", 64);
+WiFiManagerParameter para_qweather_loc("qweather_loc", "位置ID", "", 64);
 
 /* ---------------- 全局状态/变量 ---------------- */
-unsigned long _idle_millis = 0;
-unsigned long TIME_TO_SLEEP = 180 * 1000; // 默认值，会从 cfg 覆盖
-int screen_index = 0;
+ConfigManager cfg;
+Config c = cfg.get();
 
 bool _wifi_flag = false;
+unsigned long portal_idle_millis = 0;
 unsigned long _wifi_failed_millis = 0;
 unsigned long _screen_refersh_millis = 0;
 
@@ -109,13 +99,14 @@ void buttonClick(void* oneButton) {
     } else {
         Serial.println("Refresh screen manually by click.");
 
-        // 从 cfg 获取当前屏幕索引（优先临时配置）
-        Config c = cfg.get();
-        int current = c.screen_index;
-        current++;
-        // 如果需要立即持久保存当前选择，可调用
-        cfg.setPersistent_screen_index(current); // 示例：把手动切换的界面保存为持久（你也可以选择 setTemp_screen_index）
-        show_screen(current);
+        // 从 cfg 获取当前屏幕索引
+        int screen_index = c.screen_index;
+        screen_index ++;
+        if (screen_index > 6) {
+            screen_index = 0;
+        }
+        cfg.set_screen_index(screen_index);
+        show_screen();
         _screen_refersh_millis = millis();
     }
 }
@@ -126,16 +117,12 @@ void buttonClick(void* oneButton) {
    - 如果你希望在配置界面里提供临时保存选项（仅 RAM），可以在 UI 上增加一个复选项并在此回调中按复选项调用 cfg.setTemp_qweather(...)。
 */
 void saveParamsCallback() {
-    String host = para_qweather_host.getValue();
-    String loc = para_qweather_location.getValue();
+    String api_host = para_api_host.getValue();
+    String qweather_loc = para_qweather_loc.getValue();
 
-    // 持久保存并立即生效
-    cfg.setPersistent_qweather(host, loc);
-
+    cfg.set_api_host(api_host);
+    cfg.set_qweather_loc(qweather_loc);
     Serial.println("Params saved persistently.");
-
-    _idle_millis = millis(); // 刷新无操作时间点
-
     ESP.restart();
 }
 
@@ -158,12 +145,12 @@ void buttonLongPressStop(void* oneButton) {
 
     // 设置配置页面：用 NVS/默认值作为初始值（如果存在临时配置也可以选择预填临时值）
     Config c = cfg.get(); // 优先临时 -> 否则持久值
-    para_qweather_host.setValue(c.qweather_host.c_str(), 64);
-    para_qweather_location.setValue(c.qweather_loc.c_str(), 64);
+    para_api_host.setValue(c.api_host.c_str(), 64);
+    para_qweather_loc.setValue(c.qweather_loc.c_str(), 64);
 
     wm.setTitle("电子墨水屏设置");
-    wm.addParameter(&para_qweather_host);
-    wm.addParameter(&para_qweather_location);
+    wm.addParameter(&para_api_host);
+    wm.addParameter(&para_qweather_loc);
     std::vector<const char*> menu = {"wifi", "param", "update", "sep", "info", "restart", "exit"};
     wm.setMenu(menu); // custom menu, pass vector
     wm.setConfigPortalBlocking(false);
@@ -175,7 +162,7 @@ void buttonLongPressStop(void* oneButton) {
     led_config(); // LED 进入三快闪状态
 
     // 控制配置超时，记录无操作时间点
-    _idle_millis = millis();
+    portal_idle_millis = millis();
 }
 
 /* ---------------- setup / loop ---------------- */
@@ -196,12 +183,6 @@ void setup() {
     Serial.printf("    version: %s\r\n", J_VERSION);
     Serial.printf("***********************\r\n\r\n");
     Serial.printf("Copyright © 2022-2025 JADE Software Co., Ltd. All Rights Reserved.\r\n\r\n");
-
-    // 初始化 ConfigManager，加载持久配置
-    cfg.begin(PREF_NAMESPACE);
-    // 从持久配置覆盖默认运行时 TIME_TO_SLEEP
-    Config initial = cfg.get();
-    TIME_TO_SLEEP = initial.time_to_sleep_ms;
 
     led_init();
     led_on();
@@ -235,8 +216,8 @@ void setup() {
     wm.setConnectTimeout(10);
 
     // 将配置中 qweather 值预填到 wm 参数（方便 config portal 展示）
-    para_qweather_host.setValue(initial.qweather_host.c_str(), 64);
-    para_qweather_location.setValue(initial.qweather_loc.c_str(), 64);
+    para_api_host.setValue(c.api_host.c_str(), 64);
+    para_qweather_loc.setValue(c.qweather_loc.c_str(), 64);
 
     if (wm.autoConnect()) {
         Serial.println("Connect OK.");
@@ -247,7 +228,7 @@ void setup() {
         _wifi_flag = false;
         _wifi_failed_millis = millis();
         led_slow();
-        _sntp_exec(2);
+        sntp_exec(2);
         api_info_exec(2);
         WiFi.mode(WIFI_OFF); // 提前关闭WIFI，省电
         Serial.println("Wifi closed.");
@@ -262,24 +243,23 @@ void loop() {
     wm.process();
 
     // sntp 同步（如果需要）
-    if (_sntp_status() == -1) {
-        _sntp_exec();
+    if (sntp_status() == -1) {
+        sntp_exec();
     }
     // 获取Weather信息
     if (api_info_status() == -1) {
         api_info_exec();
     }
 
+    int screen_index = c.screen_index;
     // 若 sntp & api 都完成，且屏幕待刷新，则刷新并计算下一步休眠逻辑
-    if (_sntp_status() > 0 && api_info_status() > 0 && show_screen_status() == -1) {
+    // -1: 初始化 0: 显示中 1: 显示成功 2: 显示失败
+    if (sntp_status() > 0 && api_info_status() > 0 && show_screen_status() == -1) {
         if (!wm.getConfigPortalActive()) {
             WiFi.mode(WIFI_OFF);
         }
         Serial.println("Wifi closed after data fetch.");
 
-        // get effective config (临时优先)
-        Config c = cfg.get();
-        screen_index = c.screen_index;
         Serial.println("get screen_index: " + String(screen_index));
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
         if (cause == ESP_SLEEP_WAKEUP_EXT0) {
@@ -287,6 +267,7 @@ void loop() {
             Serial.println("按键唤醒 ESP_SLEEP_WAKEUP_EXT0 get screen_index: " + String(screen_index));
             screen_index ++;
         } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
+            // 定时器唤醒
             Serial.println("定时器唤醒 ESP_SLEEP_WAKEUP_TIMER get screen_index: " + String(screen_index));
             if (screen_index == 1 || screen_index == 3 || screen_index == 5) {
                 // 如果是等待展示英文单词页面，则展示下一屏
@@ -295,28 +276,31 @@ void loop() {
                 screen_index = 0;
             }
         }
-        show_screen(screen_index);
+        if (screen_index > 6) {
+            screen_index = 0;
+        }
+        cfg.set_screen_index(screen_index);
+        show_screen();
         _screen_refersh_millis = millis();
     }
 
-    // 休眠决策：当屏幕刷新完成（show_screen_status() > 0）
+    // 休眠决策：当屏幕刷新完成
+    // -1: 初始化 0: 显示中 1: 显示成功 2: 显示失败
     if (!wm.getConfigPortalActive() && show_screen_status() > 0) {
-        if (millis() - _screen_refersh_millis > 20 * 1000 || millis() - _wifi_failed_millis > 20 * 1000) {
-            Serial.println("go_sleep screen_index = " + String(screen_index));
-            if (screen_index == 1 || screen_index == 3 || screen_index == 5) {
-                go_sleep(20);
-            } else if (screen_index == 2 || screen_index == 4 || screen_index == 6) {
-                go_sleep(60 * 3);
+        if (millis() - _screen_refersh_millis > IDLE_TO_SLEEP * 1000 || millis() - _wifi_failed_millis > IDLE_TO_SLEEP * 1000) {
+            if (screen_index % 2 == 1) {
+                go_sleep(FLUSH_WORDS);
+            } else if (screen_index > 0 && screen_index % 2 == 0) {
+                go_sleep(FLUSH_CALENDAR);
             } else {
-                // go_sleep(60 * 10);
                 go_sleep();
             }
         }
     }
 
     // 配置状态下超时休眠
-    if (wm.getConfigPortalActive() && millis() - _idle_millis > TIME_TO_SLEEP) {
-        Serial.println("配置状态下 go_sleep");
+    if (wm.getConfigPortalActive() && millis() - portal_idle_millis > PORTAL_TIMEOUT * 1000) {
+        Serial.println("配置状态下超时 go_sleep");
         go_sleep();
     }
 
@@ -336,11 +320,12 @@ void go_sleep(int sleep_seconds) {
 
     int secondsToNextHour = sleep_seconds;
     if (sleep_seconds == 0) {
-        // 未指定，则根据配置计算时间（保持原逻辑）
-        secondsToNextHour = (60 - local.tm_min) * 60 - local.tm_sec + 20;
+        // 未指定唤醒时间，则根据配置计算时间（保持原逻辑）
+        secondsToNextHour = (60 - local.tm_min) * 60 - local.tm_sec;
         if (local.tm_hour == 23) {
-            secondsToNextHour += 20;
+            secondsToNextHour += 30;
         } else if (secondsToNextHour < 600) {
+            // 50分之后，下个整点不再唤醒，下下个整点才唤醒
             secondsToNextHour += 3600;
         }
     }

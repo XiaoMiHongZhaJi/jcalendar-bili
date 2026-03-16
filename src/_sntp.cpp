@@ -8,12 +8,12 @@
 TaskHandle_t* _handler;
 int _status = SYNC_STATUS_IDLE;
 
-int _sntp_status() {
+int sntp_status() {
     return _status;
 }
 
 // SNTP 校准时间的任务
-void _sntp_task(void* pvParameter) {
+void sntp_task(void* pvParameter) {
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "ntp.aliyun.com");
     // 设置时区
@@ -48,7 +48,7 @@ void _sntp_task(void* pvParameter) {
     vTaskDelete(NULL); // 删除任务
 }
 
-void _sntp_exec(int status) {
+void sntp_exec(int status) {
     _status = status;
     if (_status > 0) {
         return;
@@ -59,5 +59,5 @@ void _sntp_exec(int status) {
 
     _status = SYNC_STATUS_IN_PROGRESS;
     // 创建一个SNTP 校准时间的任务
-    xTaskCreate(&_sntp_task, "_sntp_task", 1024 * 8, NULL, 6, _handler);
+    xTaskCreate(&sntp_task, "sntp_task", 1024 * 8, NULL, 6, _handler);
 }
