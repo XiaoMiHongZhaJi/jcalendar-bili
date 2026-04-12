@@ -4,8 +4,6 @@
 #include "_sntp.h"
 #include "ConfigManager.cpp"
 
-TaskHandle_t API_HANDLER;
-
 String _qweather_host;
 String _qweather_loc;
 
@@ -54,7 +52,7 @@ void update_error(int err) {
     Serial.flush();  // ⭐ 强制输出
 }
 
-void task_weather(void* param) {
+void task_weather() {
     Serial.println("[Task] get weather begin...");
 
     API<> api;
@@ -88,15 +86,13 @@ void task_weather(void* param) {
         } else if (ret == HTTP_UPDATE_OK) {
             Serial.println("OTA update successful, restarting...");
             Serial.flush();
+            WiFi.mode(WIFI_OFF);
         }
-        _api_info_status = 2;
     } else{
         _api_info_status = 2;
     }
 
     Serial.println("[Task] get weather end...");
-    API_HANDLER = NULL;
-    vTaskDelete(NULL);
 }
 
 void api_info_exec(int status) {
@@ -122,18 +118,10 @@ void api_info_exec(int status) {
         return;
     }
 
-    if (API_HANDLER != NULL) {
-        vTaskDelete(API_HANDLER);
-        API_HANDLER = NULL;
-    }
-    xTaskCreate(task_weather, "WeatherData", 1024 * 8, NULL, 2, &API_HANDLER);
+    task_weather();
 }
 
 void api_info_stop() {
-    if (API_HANDLER != NULL) {
-        vTaskDelete(API_HANDLER);
-        API_HANDLER = NULL;
-    }
     _api_info_status = 2;
 }
 

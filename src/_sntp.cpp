@@ -30,7 +30,7 @@ void sntp_task(void* pvParameter) {
             break; // 获取时间成功，退出循环
         }
 
-        if (millis() - begin_millis > 10 * 1000) { // 超时10s
+        if (millis() - begin_millis > 5 * 500) { // 超时5s
             Serial.println("SNTP timeout.");
             re = SYNC_STATUS_NOK;
             break;

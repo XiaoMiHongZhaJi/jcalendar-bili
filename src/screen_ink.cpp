@@ -52,8 +52,6 @@ struct
     int16_t dayW;
 } static calLayout;
 
-TaskHandle_t SCREEN_HANDLER;
-
 void init_cal_layout_size() {
     calLayout.topH = 60;
 
@@ -292,8 +290,6 @@ void draw_cal_days() {
         String liveDateTag = liveDateTags[iDay];
         if (strcmp(liveDateTag.c_str(), "0") != 0) {
 
-            Serial.println("draw live tag:" + liveDateTag + " for day " + String(iDay + 1));
-
             u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
             u8g2Fonts.setForegroundColor(GxEPD_RED);
             u8g2Fonts.setFont(u8g2_font_open_iconic_all_1x_t);
@@ -323,8 +319,6 @@ void draw_cal_days() {
         // 画天气预报 Tag
         String futureTag = futureTags[iDay];
         if (strcmp(futureTag.c_str(), "0") != 0) {
-
-            Serial.println("draw weather future tag:" + futureTag + " for day " + String(iDay + 1));
 
             u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
             u8g2Fonts.setForegroundColor(GxEPD_RED);
@@ -802,17 +796,12 @@ boolean get_datetime() {
 /**
  * 屏幕刷新
  */
-void show_screen_task(void* param) {
+void show_screen_task(int screen_index) {
     _screen_status = 0;
-    extern ConfigManager cfg;
-    Config c = cfg.get();
-    int screen_index = c.screen_index;
 
     if (!get_datetime()) { // 准备时间日期信息
         Serial.println("ERR: System time prepare failed.");
         _screen_status = 2;
-        SCREEN_HANDLER = NULL;
-        vTaskDelete(NULL);
         return;
     }
     
@@ -864,16 +853,11 @@ void show_screen_task(void* param) {
     Serial.println("[Task] screen update end...");
 
     _screen_status = 1;
-    SCREEN_HANDLER = NULL;
-    vTaskDelete(NULL);
 }
 
-void show_screen() {
-
-    if (SCREEN_HANDLER != NULL) {
-        vTaskDelete(SCREEN_HANDLER);
-    }
-    xTaskCreate(show_screen_task, "Screen", 4096, NULL, 2, &SCREEN_HANDLER);
+void set_screen_status(int status) {
+    // -1: 初始化 0: 显示中 1: 显示成功 2: 显示失败
+    _screen_status = status;
 }
 
 int show_screen_status() {
