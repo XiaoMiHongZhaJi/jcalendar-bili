@@ -62,7 +62,7 @@ WiFiManagerParameter para_qweather_loc("qweather_loc", "位置ID", "", 64);
 
 /* ---------------- 全局状态/变量 ---------------- */
 ConfigManager cfg;
-Config c = cfg.get();
+const Config& c = cfg.get();
 
 bool _wifi_flag = false;
 unsigned long portal_idle_millis = 0;
@@ -101,8 +101,9 @@ void buttonClick(void* oneButton) {
 
         // 从 cfg 获取当前屏幕索引
         int screen_index = c.screen_index;
+        Serial.println("按键按下 screen_index: " + String(screen_index));
         screen_index ++;
-        if (screen_index > 6) {
+        if (screen_index < 0 || screen_index > WORDS_PAGES) {
             screen_index = 0;
         }
         cfg.set_screen_index(screen_index);
@@ -144,7 +145,6 @@ void buttonLongPressStop(void* oneButton) {
     }
 
     // 设置配置页面：用 NVS/默认值作为初始值（如果存在临时配置也可以选择预填临时值）
-    Config c = cfg.get(); // 优先临时 -> 否则持久值
     para_api_host.setValue(c.api_host.c_str(), 64);
     para_qweather_loc.setValue(c.qweather_loc.c_str(), 64);
 
@@ -184,6 +184,8 @@ void setup() {
     Serial.printf("***********************\r\n\r\n");
     Serial.printf("Copyright © 2022-2025 JADE Software Co., Ltd. All Rights Reserved.\r\n\r\n");
 
+    // 初始化 ConfigManager，加载持久配置
+    cfg.begin();
     led_init();
     led_on();
     delay(100);
@@ -251,7 +253,6 @@ void loop() {
         api_info_exec();
     }
 
-    int screen_index = c.screen_index;
     // 若 sntp & api 都完成，且屏幕待刷新，则刷新并计算下一步休眠逻辑
     // -1: 初始化 0: 显示中 1: 显示成功 2: 显示失败
     if (sntp_status() > 0 && api_info_status() > 0 && show_screen_status() == -1) {
@@ -260,6 +261,7 @@ void loop() {
         }
         Serial.println("Wifi closed after data fetch.");
 
+        int screen_index = c.screen_index;
         Serial.println("get screen_index: " + String(screen_index));
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
         if (cause == ESP_SLEEP_WAKEUP_EXT0) {
@@ -269,14 +271,14 @@ void loop() {
         } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
             // 定时器唤醒
             Serial.println("定时器唤醒 ESP_SLEEP_WAKEUP_TIMER get screen_index: " + String(screen_index));
-            if (screen_index == 1 || screen_index == 3 || screen_index == 5) {
+            if (screen_index % 2 == 1) {
                 // 如果是等待展示英文单词页面，则展示下一屏
                 screen_index ++;
             } else {
                 screen_index = 0;
             }
         }
-        if (screen_index > 6) {
+        if (screen_index < 0 || screen_index > WORDS_PAGES) {
             screen_index = 0;
         }
         cfg.set_screen_index(screen_index);
@@ -288,6 +290,7 @@ void loop() {
     // -1: 初始化 0: 显示中 1: 显示成功 2: 显示失败
     if (!wm.getConfigPortalActive() && show_screen_status() > 0) {
         if (millis() - _screen_refersh_millis > IDLE_TO_SLEEP * 1000 || millis() - _wifi_failed_millis > IDLE_TO_SLEEP * 1000) {
+            int screen_index = c.screen_index;
             if (screen_index % 2 == 1) {
                 go_sleep(FLUSH_WORDS);
             } else if (screen_index > 0 && screen_index % 2 == 0) {
@@ -309,10 +312,6 @@ void loop() {
 
 /* ---------------- go_sleep 实现（未作根本改变，仅使用 cfg 中的 sleep 配置） ---------------- */
 void go_sleep(int sleep_seconds) {
-    uint64_t p;
-    // 读取本次生效的配置
-    Config c = cfg.get();
-
     time_t now;
     time(&now);
     struct tm local;

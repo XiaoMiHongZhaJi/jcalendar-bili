@@ -287,7 +287,6 @@ void draw_cal_days() {
 
         // 画直播 Tag
         if (iDay >= liveDateTags.size()) {
-            Serial.println("liveDateTags index out of range: " + String(iDay));
             continue;
         }
         String liveDateTag = liveDateTags[iDay];
@@ -805,10 +804,9 @@ boolean get_datetime() {
  */
 void show_screen_task(void* param) {
     _screen_status = 0;
-    ConfigManager cfg;
+    extern ConfigManager cfg;
     Config c = cfg.get();
     int screen_index = c.screen_index;
-    Serial.println("show_screen, screen_index: " + String(screen_index));
 
     if (!get_datetime()) { // 准备时间日期信息
         Serial.println("ERR: System time prepare failed.");

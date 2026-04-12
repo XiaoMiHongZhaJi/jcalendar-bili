@@ -7,7 +7,7 @@
 #define ENABLE_WORDS true  // 是否打开单词功能
 #define WORDS_PAGES      6 // 单词页面总数
 #define IDLE_TO_SLEEP    5 // 页面刷新后进入休眠等待时间
-#define FLUSH_WORDS     20 // 单词页面填充等待时间
+#define FLUSH_WORDS     25 // 单词页面填充等待时间
 #define FLUSH_CALENDAR 120 // 单词转到日历页面等待时间
 #define PORTAL_TIMEOUT 180 // 配置超时时间
 
@@ -26,8 +26,8 @@ public:
     loadFromNVS();
   }
 
-  // 读取生效配置（临时优先）
-  Config get() {
+  // 读取生效配置
+  const Config& get() const {
     return _nvs;
   }
 

@@ -110,7 +110,7 @@ void api_info_exec(int status) {
         return;
     }
 
-    ConfigManager cfg;
+    extern ConfigManager cfg;
     Config c = cfg.get();
 
     _qweather_host = c.api_host;
