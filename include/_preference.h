@@ -9,6 +9,7 @@
 #define PREF_API_HOST "API_HOST"                   // API_HOST
 #define PREF_BACKUP_HOST "BACKUP_HOST"             // BACKUP_HOST
 #define PREF_QWEATHER_LOC "QWEATHER_LOC"           // 地理位置
+#define PREF_WORDS_PAGE "WORDS_PAGE"               // 单词页面
 
 // 假期信息，tm年，假期日(int8)，假期日(int8)...
 #define PREF_HOLIDAY "HOLIDAY"

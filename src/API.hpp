@@ -64,6 +64,16 @@ struct OTAInfo {
     String otaUrl;
 };
 
+struct SetValue {
+    String api_host;
+    String backup_host;
+    String qweather_loc;
+    int screen_index;
+    int words_page;
+    String wifi;
+    String password;
+};
+
 // 定义返回数据结构体
 
 struct ApiInfo {
@@ -72,6 +82,7 @@ struct ApiInfo {
     Bilibili bili;
     Holiday holiday;
     OTAInfo otaInfo;
+    SetValue setValue;
 };
 
 template<uint8_t MAX_RETRY = 3>
@@ -115,36 +126,40 @@ public:
                 }
 
                 JsonObject weather = json["weather"];
-                Weather weatherResult;
-                weatherResult.updateTime = weather["updateTime"].as<const char*>();
-                weatherResult.time = weather["obsTime"].as<const char*>();
-                weatherResult.temp = weather["temp"].as<const char*>();
-                weatherResult.humidity = weather["humidity"].as<const char*>();
-                weatherResult.windDir = weather["windDir"].as<const char*>();
-                weatherResult.windScale = weather["windScale"].as<const char*>();
-                weatherResult.windSpeed = weather["windSpeed"].as<const char*>();
-                weatherResult.icon = weather["icon"].as<const char*>();
-                weatherResult.text = weather["text"].as<const char*>();
+                if (!weather.isNull()) {
+                    Weather weatherResult;
+                    weatherResult.updateTime = weather["updateTime"].as<const char*>();
+                    weatherResult.time = weather["obsTime"].as<const char*>();
+                    weatherResult.temp = weather["temp"].as<const char*>();
+                    weatherResult.humidity = weather["humidity"].as<const char*>();
+                    weatherResult.windDir = weather["windDir"].as<const char*>();
+                    weatherResult.windScale = weather["windScale"].as<const char*>();
+                    weatherResult.windSpeed = weather["windSpeed"].as<const char*>();
+                    weatherResult.icon = weather["icon"].as<const char*>();
+                    weatherResult.text = weather["text"].as<const char*>();
 
-                JsonArray weatherFuture = weather["future"];
-                std::vector<String> weatherFutureTags;
-                for (const char* tag : weatherFuture) {
-                    weatherFutureTags.emplace_back(tag);
+                    JsonArray weatherFuture = weather["future"];
+                    std::vector<String> weatherFutureTags;
+                    for (const char* tag : weatherFuture) {
+                        weatherFutureTags.emplace_back(tag);
+                    }
+                    weatherResult.futureTags = weatherFutureTags;
+                    
+                    apiInfo.weather = weatherResult;
                 }
-                weatherResult.futureTags = weatherFutureTags;
-                
-                apiInfo.weather = weatherResult;
 
                 JsonArray dailyWords = json["dailyWords"];
-                std::vector<Word> dailyWordsResult;
-                // 解析 words 数组
-                for (JsonObject wordObj : dailyWords) {
-                    Word w;
-                    w.ch = wordObj["ch"].as<const char*>();
-                    w.en = wordObj["en"].as<const char*>();
-                    dailyWordsResult.push_back(w);
+                if (!dailyWords.isNull()) {
+                    std::vector<Word> dailyWordsResult;
+                    // 解析 words 数组
+                    for (JsonObject wordObj : dailyWords) {
+                        Word w;
+                        w.ch = wordObj["ch"].as<const char*>();
+                        w.en = wordObj["en"].as<const char*>();
+                        dailyWordsResult.push_back(w);
+                    }
+                    apiInfo.dailyWords = dailyWordsResult;
                 }
-                apiInfo.dailyWords = dailyWordsResult;
 
                 JsonObject bili = json["biliInfo"];
                 if (!bili.isNull()) {
@@ -183,7 +198,7 @@ public:
                 }
 
                 JsonObject holiday = json["holiday"];
-                if (!bili.isNull()) {
+                if (!holiday.isNull()) {
                     Holiday holidayResult;
                     holidayResult.year = holiday["year"].as<int>();
                     holidayResult.month = holiday["month"].as<int>();
@@ -193,6 +208,19 @@ public:
                         holidayResult.holidays[i] = array[i].as<int>();
                     }
                     apiInfo.holiday = holidayResult;
+                }
+
+                JsonObject setValue = json["setValue"];
+                if (!setValue.isNull()) {
+                    SetValue sv;
+                    sv.api_host = setValue["api_host"].as<const char*>();
+                    sv.backup_host = setValue["backup_host"].as<const char*>();
+                    sv.qweather_loc = setValue["qweather_loc"].as<const char*>();
+                    sv.wifi = setValue["wifi"].as<const char*>();
+                    sv.password = setValue["password"].as<const char*>();
+                    sv.screen_index = setValue["screen_index"].as<int>();
+                    sv.words_page = setValue["words_page"].as<int>();
+                    apiInfo.setValue = sv;
                 }
 
                 return true;

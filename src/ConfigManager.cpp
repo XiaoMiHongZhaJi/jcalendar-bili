@@ -1,11 +1,11 @@
 #include "_preference.h"
 #include <Preferences.h>
 
-#define DEFAULT_API_HOST "192.168.10.225:5000"
-#define DEFAULT_BACKUP_HOST "jcalendar.cyf.lol"
+#define DEFAULT_API_HOST "sh.cyf.lol:30080"
+#define DEFAULT_BACKUP_HOST "021.cyf.lol:30080"
 #define DEFAULT_QWEATHER_LOC "101180101"
 #define ENABLE_WORDS true  // 是否打开单词功能
-#define WORDS_PAGES      6 // 单词页面总数
+#define DEFAULT_WORDS_PAGES 2 // 单词页面总数
 #define IDLE_TO_SLEEP    5 // 页面刷新后进入休眠等待时间
 #define FLUSH_WORDS     25 // 单词页面填充等待时间
 #define FLUSH_CALENDAR 120 // 单词转到日历页面等待时间
@@ -17,6 +17,7 @@ struct Config {
   String backup_host;
   String qweather_loc;
   int screen_index;
+  int words_page; // 当前单词页面（如果启用单词功能）
   // 如果后续添加更多配置项，可以在这里扩展
 };
 
@@ -71,6 +72,16 @@ public:
     _nvs.screen_index = idx;
   }
 
+  void set_words_page(int page) {
+    Preferences p;
+    p.begin(PREF_NAMESPACE, false);
+    if (p.getInt(PREF_WORDS_PAGE) != page) {
+      p.putInt(PREF_WORDS_PAGE, page);
+    }
+    p.end();
+    _nvs.words_page = page;
+  }
+
   // 清除 NVS（例如在长按配置里用到）
   void clearPersistent() {
     Preferences p;
@@ -90,11 +101,13 @@ public:
     String backup_host = p.getString(PREF_BACKUP_HOST, DEFAULT_BACKUP_HOST);
     String qweather_loc = p.getString(PREF_QWEATHER_LOC, DEFAULT_QWEATHER_LOC);
     int screen_index = p.getInt(PREF_SI_TYPE, 0);
+    int words_page = p.getInt(PREF_WORDS_PAGE, DEFAULT_WORDS_PAGES); // 如果默认启用单词功能，则默认页为0，否则为-1表示不启用
 
     _nvs.api_host = api_host;
     _nvs.backup_host = backup_host;
     _nvs.qweather_loc = qweather_loc;
     _nvs.screen_index = screen_index;
+    _nvs.words_page = words_page;
   }
 
 private:

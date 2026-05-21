@@ -101,9 +101,10 @@ void buttonClick(void* oneButton) {
 
         // 从 cfg 获取当前屏幕索引
         int screen_index = c.screen_index;
+        int words_page = c.words_page;
         Serial.println("按键按下 screen_index: " + String(screen_index));
         screen_index ++;
-        if (screen_index < 0 || screen_index > WORDS_PAGES) {
+        if (screen_index < 0 || screen_index > words_page) {
             screen_index = 0;
         }
         cfg.set_screen_index(screen_index);
@@ -262,6 +263,7 @@ void loop() {
         Serial.println("Wifi closed after data fetch.");
 
         int screen_index = c.screen_index;
+        int words_page = c.words_page;
         Serial.println("get screen_index: " + String(screen_index));
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
         if (cause == ESP_SLEEP_WAKEUP_EXT0) {
@@ -278,7 +280,7 @@ void loop() {
                 screen_index = 0;
             }
         }
-        if (screen_index < 0 || screen_index > WORDS_PAGES) {
+        if (screen_index < 0 || screen_index > words_page) {
             screen_index = 0;
         }
         cfg.set_screen_index(screen_index);
