@@ -197,14 +197,14 @@ void setup() {
     button.attachLongPressStop(buttonLongPressStop, &button);
     attachInterrupt(digitalPinToInterrupt(KEY_M), checkTicks, CHANGE);
     
-    int voltage = readBatteryVoltage();
+    int voltage = getBatteryVoltage();
     Serial.printf("Battery: %d mV\r\n", voltage);
     if(voltage < 3000) {
         Serial.println("[INFO]电池损坏或无ADC电路。");
-    } else if(voltage < 3550) {
+    } else if(voltage < BATTERY_SLEEP) {
         Serial.println("[WARN]电量低于3.5v，系统休眠。");
         go_sleep(7 * 24 * 60 * 60); // 7天后唤醒
-    } else if (voltage < 3600) {
+    } else if (voltage < BATTERY_WARNING) {
         Serial.println("[WARN]电量低于3.6v，警告并系统休眠。");
         go_sleep(24 * 60 * 60); // 1天后唤醒
     } else if (voltage > 4400) {
@@ -330,7 +330,7 @@ void go_sleep(int sleep_seconds) {
             secondsToNextHour += 3600;
         }
     }
-    Serial.printf("Battery voltage: %d \n", readBatteryVoltage());
+    Serial.printf("Battery voltage: %d \n", getBatteryVoltage());
     Serial.printf("Seconds to next even hour: %d seconds.\n", secondsToNextHour);
     pinMode(PIN_LED_R, INPUT); // Off 
     delay(100);

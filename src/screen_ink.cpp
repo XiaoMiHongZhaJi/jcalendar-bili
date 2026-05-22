@@ -816,7 +816,7 @@ void show_screen_task(void* param) {
         return;
     }
     
-    int voltage = readBatteryVoltage();
+    int voltage = getBatteryVoltage();
 
     Serial.println("[Task] screen update begin...");
     Serial.flush();
@@ -832,7 +832,7 @@ void show_screen_task(void* param) {
     display.firstPage();
     display.fillScreen(GxEPD_WHITE);
     do {
-        if (voltage < 3600) {
+        if (voltage < BATTERY_WARNING) {
             Serial.println("[WARN]电量低于3.6v，警告并系统休眠。");
             si_warning("电量不足，请充电！");
         } else {

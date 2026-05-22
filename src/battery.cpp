@@ -20,6 +20,8 @@
 #include "esp_adc_cal.h"
 #include <Arduino.h>
 
+int batteryVoltage = 0;
+
 /**
  * 获取电池电压（mV）
  */
@@ -38,4 +40,13 @@ int readBatteryVoltage() {
     voltage *= 2;
 
     return voltage;
+}
+
+int getBatteryVoltage() {
+    if (batteryVoltage == 0) {
+        batteryVoltage = readBatteryVoltage();
+        delay(100);
+        batteryVoltage = readBatteryVoltage();
+    }
+    return batteryVoltage;
 }

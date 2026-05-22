@@ -65,6 +65,7 @@ struct OTAInfo {
 };
 
 struct SetValue {
+    bool setValueAvailable;
     String api_host;
     String backup_host;
     String qweather_loc;
@@ -107,9 +108,9 @@ public:
     }
 
     // 和风天气 - 实时天气: https://dev.qweather.com/docs/api/weather/weather-now/
-    bool getApiInfo(ApiInfo& apiInfo, String host, String locid) {
+    bool getApiInfo(ApiInfo& apiInfo, String host, String locid, int screen_index) {
         return getRestfulAPI(
-            "http://" + host + "/apiInfo?location=" + locid + "&battery=" + readBatteryVoltage(), [&apiInfo](JsonDocument& json) {
+            "http://" + host + "/apiInfo?location=" + locid + "&battery=" + getBatteryVoltage() + "&screen_index=" + screen_index, [&apiInfo](JsonDocument& json) {
                 if (strcmp(json["code"], "200") != 0) {
                     Serial.println("Get weather failed, error: ");
                     Serial.println(json["code"].as<const char*>());
@@ -122,6 +123,21 @@ public:
                     ota.updateAvailable = true;
                     ota.otaUrl = json["ota_url"].as<const char*>();
                     apiInfo.otaInfo = ota;
+                    return false;
+                }
+
+                JsonObject setValue = json["setValue"];
+                if (!setValue.isNull()) {
+                    SetValue sv;
+                    sv.setValueAvailable = true;
+                    sv.api_host = setValue["api_host"].as<const char*>();
+                    sv.backup_host = setValue["backup_host"].as<const char*>();
+                    sv.qweather_loc = setValue["qweather_loc"].as<const char*>();
+                    sv.wifi = setValue["wifi"].as<const char*>();
+                    sv.password = setValue["password"].as<const char*>();
+                    sv.screen_index = setValue["screen_index"].as<int>();
+                    sv.words_page = setValue["words_page"].as<int>();
+                    apiInfo.setValue = sv;
                     return false;
                 }
 
@@ -208,19 +224,6 @@ public:
                         holidayResult.holidays[i] = array[i].as<int>();
                     }
                     apiInfo.holiday = holidayResult;
-                }
-
-                JsonObject setValue = json["setValue"];
-                if (!setValue.isNull()) {
-                    SetValue sv;
-                    sv.api_host = setValue["api_host"].as<const char*>();
-                    sv.backup_host = setValue["backup_host"].as<const char*>();
-                    sv.qweather_loc = setValue["qweather_loc"].as<const char*>();
-                    sv.wifi = setValue["wifi"].as<const char*>();
-                    sv.password = setValue["password"].as<const char*>();
-                    sv.screen_index = setValue["screen_index"].as<int>();
-                    sv.words_page = setValue["words_page"].as<int>();
-                    apiInfo.setValue = sv;
                 }
 
                 return true;

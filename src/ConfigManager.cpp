@@ -11,6 +11,9 @@
 #define FLUSH_CALENDAR 120 // 单词转到日历页面等待时间
 #define PORTAL_TIMEOUT 180 // 配置超时时间
 
+#define BATTERY_WARNING 3650 // 电池休眠电压
+#define BATTERY_SLEEP 3550 // 电池休眠电压
+
 /* -------------------- ConfigManager --------------------*/
 struct Config {
   String api_host;

@@ -12,16 +12,22 @@ QWEATHER_URL_2 = "https://pc487rtvyv.re.qweatherapi.com/v7/weather/30d"
 API_KEY = "xxx"
 LOCATION = "101021600" # 上海市
 CET6_WORDS_PATH = "/root/sh/cet6_words.json"
-
 BIN_FILE_NAME = "jcalendar-bili.bin"
 BIN_FILE_PATH = "/root/sh/" + BIN_FILE_NAME
-BASE_DOMAIN = "http://192.168.10.225:5000"
+BASE_DOMAIN = "http://021.cyf.lol:30080"
+
+setValue = {
+    #"wifi": "MYWIFI",
+    #"password": "12222222",
+    "api_host": "021.cyf.lol:30080"
+}
+setValue = None
 
 WORDS_HISTORY_DAYS = 3
-BILI_SESSDATA = "xxx"
-BILI_SESSDATA_FILE = ""
+BILI_SESSDATA = "703c1058%2C1791370165%2C82935641CjCh3fQ1tu-pouQfzHpl-ljr_PSASM_jZ4mJsn-qIbhWMF-z2zmcSDuXHPWOn38tuK8SVjBkLUUtU2lnNjFQNGhEaTBUUnlmWF9nazlQaWZRWmhYUmZmazdLNkxZVDBTQlBqSjRud1ZfS25DMmIzZ1pJWVZqUUFhY3VjSHdZdVpVY3FOZXB6V2lRIIEC"
+BILI_SESSDATA_FILE = "/mnt/bili/data/3913407.json"
 
-if not BILI_SESSDATA:
+if not BILI_SESSDATA and BILI_SESSDATA_FILE:
     # 读取 JSON 文件
     with open(BILI_SESSDATA_FILE, 'r') as file:
         data = json.load(file)
@@ -80,19 +86,29 @@ def download_ota():
 
 @app.route("/apiInfo")
 def apiInfo():
+    global api_info_cache, setValue
     battery = request.args.get('battery') or None
     location = request.args.get('location') or LOCATION
-    logger.info(f"/apiInfo called with battery={battery}, location={location}")
+    screen_index = request.args.get('screen_index') or None
+    logger.info(f"/apiInfo called with battery={battery}, location={location}, screen_index={screen_index}")
 
     if os.path.exists(BIN_FILE_PATH):
-        logger.warning("OTA update file exists, returning OTA info.")
+        logger.info("Update Available, return")
         return jsonify({
             "ota_update": True,
             "ota_url": f"{BASE_DOMAIN}/ota/{BIN_FILE_NAME}",
             "code": "200"
         })
+
+    if setValue:
+        res = {
+            "setValue": setValue,
+            "code": "200"
+        }
+        logger.info("setValue Available, return: " + str(res))
+        setValue = None
+        return jsonify(res)
     
-    global api_info_cache
     need_update = False
 
     if not api_info_cache or location not in api_info_cache:
@@ -130,7 +146,9 @@ def apiInfo():
     else:
         logger.info(f"Using cached apiInfo, last update: {api_info_cache[location].get('updateTime','')}, location: {location}")
 
-    return jsonify(api_info_cache[location])
+    data = api_info_cache[location]
+        
+    return jsonify(data)
 
 
 baseFollower = 0
@@ -152,7 +170,7 @@ def get_bili_info():
     else:
         last_update = bili_cache.get("updateTime", "")
         last_updatetime = datetime.strptime(last_update, "%Y-%m-%d %H:%M:%S")
-        if datetime.now() - last_updatetime > timedelta(minutes=1):
+        if datetime.now() - last_updatetime > timedelta(minutes=50):
             need_update = True
             logger.info(f"biliInfo cache is outdated, last update: {last_update}")
         elif datetime.now().date() != last_updatetime.date():
@@ -284,8 +302,81 @@ def live_dates():
 
 
 def get_live_dates():
+    delta_days = 0
+    try:
+        # ------------------------------
+        # 调用新接口
+        # ------------------------------
+        resp = requests.get(
+            "https://member.bilibili.com/x2/creative/web/season/section?id=7321271",
+            headers=HEADERS,
+            cookies=COOKIES
+        ).json()
+
+        if resp.get("code") != 0:
+            return {}
+
+        # 新接口数据
+        episodes = resp["data"].get("episodes", [])
+
+        # ------------------------------
+        # 从 title 提取日期 YYYY-MM-DD
+        # ------------------------------
+        date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
+        extracted_dates = []
+
+        for item in episodes:
+            title = item.get("title", "")
+            match = date_pattern.search(title)
+
+            if match:
+                extracted_dates.append(match.group(1))
+
+        if not extracted_dates:
+            return {}
+
+        # 仅保留本月
+        live_date_list = [
+            d for d in extracted_dates
+            if d.startswith(datetime.now().strftime("%Y-%m"))
+        ]
+
+        # 去重 + 倒序
+        live_date_list = sorted(
+            list(set(live_date_list)),
+            reverse=True
+        )
+
+        # 计算距今天数
+        if len(live_date_list) > 0:
+            latest_date_str = live_date_list[0]
+
+            latest_dt = datetime.strptime(
+                latest_date_str,
+                "%Y-%m-%d"
+            )
+
+            today = datetime.now()
+
+            delta_days = (
+                    today.date() - latest_dt.date()
+            ).days
+
+        # 保持旧结构一致
+        return {
+            "liveDeltaDays": delta_days,
+            "liveDates": live_date_list
+        }
+
+    except Exception as e:
+        logger.error("Error in get_live_dates: " + str(e))
+        return {}
+
+
+def get_live_dates_public():
     mid = request.args.get("mid")
     season_id = request.args.get("season_id")
+    delta_days = 0
 
     if not mid or not season_id:
         mid = "3913407"
@@ -334,7 +425,6 @@ def get_live_dates():
         # 去重 + 按时间倒序排序
         live_date_list = sorted(list(set(live_date_list)), reverse=True)
 
-        delta_days = ""
         if len(live_date_list) > 0:
             latest_date_str = live_date_list[0]  # 第一条通常是最新的
             latest_dt = datetime.strptime(latest_date_str, "%Y-%m-%d")
@@ -359,10 +449,17 @@ def bili_user():
 
 
 def get_bili_user():
+    global latest_bvid
     uid = request.args.get("uid")
     if not uid:
         uid = "4778211"
-        # return jsonify({"error": "uid required"}), 400
+
+    archive_view = 0
+    total_likes = 0
+    follower = 0
+    video_detail = {}
+    video_dates = []
+    delta_days = 0
 
     try:
         # --------------------------
@@ -375,11 +472,13 @@ def get_bili_user():
             cookies=COOKIES
         ).json()
 
-        if rel_resp.get("code") != 0:
-            return {}
+        if rel_resp.get("code") == 0:
+            follower = rel_resp["data"]["follower"]
 
-        follower = rel_resp["data"]["follower"]
+    except Exception as e:
+        logger.error("get_bili_user relation/stat error: " + str(e))
 
+    try:
         # --------------------------
         # ② 获取 upstat（播放量 + 获赞）
         # --------------------------
@@ -390,43 +489,56 @@ def get_bili_user():
             cookies=COOKIES
         ).json()
 
-        archive_view = 0
-        total_likes = 0
         if up_resp.get("code") == 0 and not up_resp["data"].get("archive") is None:
             archive_view = up_resp["data"]["archive"]["view"]
             total_likes = up_resp["data"]["likes"]
         else:
             logger.error("get upstat error")
 
+    except Exception as e:
+        logger.error("get_bili_user upstat error: " + str(e))
+
+    try:
         # --------------------------
         # ③ 获取最新视频（archives）
         # --------------------------
         archive_resp = requests.get(
-            "https://api.bilibili.com/x/series/recArchivesByKeywords",
-            params={
-                "mid": uid,
-                "keywords": "",
-                "orderby": "pubdate"
-            },
+            "https://api.bilibili.com/x/series/recArchivesByKeywords?keywords=&orderby=pubdate&mid=" + uid,
             headers=HEADERS,
             # cookies=COOKIES
-        ).json()
+        )
+        if archive_resp.text[:1] != "{":
+            archive_resp = requests.get("https://api.bilibili.com/x/series/recArchivesByKeywords?keywords=&orderby=pubdate&mid=" + uid, headers=HEADERS)
 
-        if archive_resp.get("code") != 0:
-            return {}
+        if archive_resp.text[:1] != "{":
+            logger.error("get_bili_user archive_resp error")
+        else:
+            archives = archive_resp.json()["data"].get("archives", None)
+            if archives:
+                latest_video = archives[0]
+                latest_bvid = latest_video["bvid"]
 
-        video_detail = {}
-        video_dates = []
-        delta_days = 0
-        latest_bvid = ""
-        archives = archive_resp["data"].get("archives", [])
-        if archives:
-            latest_video = archives[0]
-            latest_bvid = latest_video["bvid"]
+                for item in archives:
+                    ts = item.get("pubdate")
+                    if not ts:
+                        continue
 
-            # --------------------------
-            # ④ 根据 bvid 获取视频详细信息（wbi/view）
-            # --------------------------
+                    # 转为 YYYY-MM-DD
+                    dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
+                    date_str = dt.strftime("%Y-%m-%d")
+                    video_dates.append(date_str)
+
+                video_dates = [d for d in video_dates if d.startswith(datetime.now().strftime("%Y-%m"))]
+                video_dates = sorted(list(set(video_dates)), reverse=True)
+
+    except Exception as e:
+        logger.error("get_bili_user archives error: " + str(e))
+
+    if latest_bvid:
+        # --------------------------
+        # ④ 根据 bvid 获取视频详细信息（wbi/view）
+        # --------------------------
+        try:
             view_resp = requests.get(
                 "https://api.bilibili.com/x/web-interface/wbi/view",
                 params={"bvid": latest_bvid},
@@ -447,29 +559,20 @@ def get_bili_user():
                     "latest_bvid": latest_bvid
                 }
 
-            for item in archives:
-                ts = item.get("pubdate")
-                if not ts:
-                    continue
-
-                # 转为 YYYY-MM-DD
-                dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
-                date_str = dt.strftime("%Y-%m-%d")
-                video_dates.append(date_str)
-
-            video_dates = [d for d in video_dates if d.startswith(datetime.now().strftime("%Y-%m"))]
-            video_dates = sorted(list(set(video_dates)), reverse=True)
-
             # ------------------------------
             # 计算最近一次投稿距今天多少天
             # ------------------------------
-            delta_days = ""
             if len(video_dates) > 0:
                 latest_date_str = video_dates[0]  # 第一条通常是最新的
                 latest_dt = datetime.strptime(latest_date_str, "%Y-%m-%d")
 
                 today = datetime.now()
                 delta_days = (today.date() - latest_dt.date()).days
+
+        except Exception as e:
+            logger.error("get_bili_user wbi/view error: " + str(e))
+
+    try:
 
         return {
             "uid": uid,
@@ -549,61 +652,82 @@ def daily_words():
     return jsonify(get_daily_words())
 
 
+weather_future_result = []
 def get_weather_future(location):
+    global weather_future_result
     params = {
         "key": API_KEY,
         "location": location
     }
 
     # requests 会自动处理 gzip 压缩
-    resp = requests.get(QWEATHER_URL_2, params=params, timeout=5)
-    data = resp.json()
-    logger.info("Fetched weather future data: " + json.dumps(data)[0:50])
 
     result = []
-    daily = data.get("daily", [])
+    try:
+        resp = requests.get(QWEATHER_URL_2, params=params, timeout=10)
+        data = resp.json()
+        logger.info("Fetched weather future data: " + json.dumps(data)[0:50])
 
-    for day in daily:
-        result.append({
-            "date": day.get("fxDate", ""),
-            "iconDay": get_icon(int(day.get("iconDay", 999)), datetime.now().strftime("%Y-%m-%dT%H:%M+08:00")),
-            "iconNight": get_icon(int(day.get("iconNight", 999)), datetime.now().strftime("%Y-%m-%dT%H:%M+08:00")),
-            "textDay": day.get("textDay", ""),
-            "textNight": day.get("textNight", "")
-        })
+        daily = data.get("daily", [])
 
+        for day in daily:
+            result.append({
+                "date": day.get("fxDate", ""),
+                "iconDay": get_icon(int(day.get("iconDay", 999)), datetime.now().strftime("%Y-%m-%dT%H:%M+08:00")),
+                "iconNight": get_icon(int(day.get("iconNight", 999)), datetime.now().strftime("%Y-%m-%dT%H:%M+08:00")),
+                "textDay": day.get("textDay", ""),
+                "textNight": day.get("textNight", "")
+            })
+    except Exception as e:
+        logger.error("Fetched weather future error: ", e)
+
+    if result:
+        weather_future_result = result
+    else:
+        result = weather_future_result
     return result
 
 
+weather_result = {}
 def get_weather(location):
+    global weather_result
     params = {
         "key": API_KEY,
         "location": location
     }
 
     # requests 会自动处理 gzip 压缩
-    resp = requests.get(QWEATHER_URL, params=params, timeout=5)
-    data = resp.json()
-    logger.info("Fetched weather data: " + json.dumps(data))
+    result = {}
+    try:
+        resp = requests.get(QWEATHER_URL, params=params, timeout=5)
+        data = resp.json()
+        logger.info("Fetched weather data: " + json.dumps(data))
 
-    now = data.get("now", {})
+        now = data.get("now", {})
 
-    icon_id = int(now.get("icon", 999))
-    icon = get_icon(icon_id, now.get("obsTime"))
+        icon_id = int(now.get("icon", 999))
+        icon = get_icon(icon_id, now.get("obsTime"))
 
-    result = {
-        "time": now.get("obsTime", ""),
-        "temp": now.get("temp", ""),
-        "humidity": now.get("humidity", ""),
-        "windDir": now.get("windDir", ""),
-        "windScale": now.get("windScale", ""),
-        "windSpeed": now.get("windSpeed", ""),
-        "icon": icon,
-        "text": now.get("text", ""),
-        "updateTime": data.get("updateTime", ""),
-        "future": build_weather_future_array(get_weather_future(location)),
-        "code": data.get("code", "404")
-    }
+        result = {
+            "time": now.get("obsTime", ""),
+            "temp": now.get("temp", ""),
+            "humidity": now.get("humidity", ""),
+            "windDir": now.get("windDir", ""),
+            "windScale": now.get("windScale", ""),
+            "windSpeed": now.get("windSpeed", ""),
+            "icon": icon,
+            "text": now.get("text", ""),
+            "updateTime": data.get("updateTime", ""),
+            "future": build_weather_future_array(get_weather_future(location)),
+            "code": data.get("code", "404")
+        }
+    except Exception as e:
+        logger.error("Fetched weather error: ", e)
+
+    if result:
+        weather_result = result
+    else:
+        result = weather_result
 
     return result
 
@@ -746,6 +870,10 @@ def get_random_words():
 
 # 每天生成一次新的单词，缓存起来，返回最近几天的单词总和
 def get_daily_words():
+
+    if not os.path.exists(CET6_WORDS_PATH):
+        return []
+
     global words_cache
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -770,5 +898,5 @@ def get_daily_words():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5005, debug=False)
 

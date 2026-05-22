@@ -9,6 +9,7 @@ TaskHandle_t API_HANDLER;
 String _api_host;
 String _api_host_backup;
 String _qweather_loc;
+int _screen_index = 0;
 
 int8_t _api_info_status = -1;
 
@@ -66,21 +67,30 @@ void task_weather(void* param) {
     // 获取数据，根据当前小时重试不同的 host（每小时重试一次，优先主 host）
     bool success = false;
     Serial.println("Trying to fetch API info from: " + _api_host);
-    success = api.getApiInfo(_api_info, _api_host, _qweather_loc);
-    if (success || _api_info.otaInfo.updateAvailable) {
-        Serial.println("Successfully fetched API info from: " + _api_host);
-    } else {
-        Serial.println("Failed to fetch API info from: " + _api_host);
-        success = api.getApiInfo(_api_info, _api_host_backup, _qweather_loc);
-    }
-    
+    success = api.getApiInfo(_api_info, _api_host, _qweather_loc, _screen_index);
     if (success) {
-        _api_info_status = 1;
-        _weather = _api_info.weather;
-        _daily_words = _api_info.dailyWords;
-        Serial.println("_daily_words size: " + String(_daily_words.size()));
-        _bili = _api_info.bili;
-        _holiday = _api_info.holiday;
+        Serial.println("Successfully fetched API info from: " + _api_host);
+    } else if (_api_info.otaInfo.updateAvailable) {
+        Serial.println("OTA update available, skipping data parsing.");
+        String ota_url = _api_info.otaInfo.otaUrl;
+        WiFiClient UpdateClient;
+        httpUpdate.onEnd(update_finished);//当升级结束时
+        httpUpdate.onProgress(update_progress);//当升级中
+        httpUpdate.onError(update_error);//当升级失败时
+        t_httpUpdate_return ret = httpUpdate.update(UpdateClient, ota_url);
+        if (ret == HTTP_UPDATE_FAILED) {
+            Serial.printf("OTA update failed. Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+            Serial.flush();
+        } else if (ret == HTTP_UPDATE_NO_UPDATES) {
+            Serial.println("No OTA update available.");
+            Serial.flush();
+        } else if (ret == HTTP_UPDATE_OK) {
+            Serial.println("OTA update successful, restarting...");
+            Serial.flush();
+        }
+        _api_info_status = 2;
+    } else if (_api_info.setValue.setValueAvailable) {
+        Serial.println("SetValue received ...");
         _setValue = _api_info.setValue;
         if (_setValue.api_host.length() > 0) {
             _api_host = _setValue.api_host;
@@ -105,27 +115,21 @@ void task_weather(void* param) {
             WiFi.begin(_setValue.wifi.c_str(), _setValue.password.c_str());
             Serial.println("Connecting to WiFi with new credentials from API..." + _setValue.wifi + " / " + _setValue.password);
         }
-    } else if (_api_info.otaInfo.updateAvailable) {
-        _api_info_status = -2; // 特殊状态码，表示需要 OTA 升级
-        Serial.println("OTA update available, skipping data parsing.");
-
-        String ota_url = _api_info.otaInfo.otaUrl;
-        WiFiClient UpdateClient;
-        httpUpdate.onEnd(update_finished);//当升级结束时
-        httpUpdate.onProgress(update_progress);//当升级中
-        httpUpdate.onError(update_error);//当升级失败时
-        t_httpUpdate_return ret = httpUpdate.update(UpdateClient, ota_url);
-        if (ret == HTTP_UPDATE_FAILED) {
-            Serial.printf("OTA update failed. Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-            Serial.flush();
-        } else if (ret == HTTP_UPDATE_NO_UPDATES) {
-            Serial.println("No OTA update available.");
-            Serial.flush();
-        } else if (ret == HTTP_UPDATE_OK) {
-            Serial.println("OTA update successful, restarting...");
-            Serial.flush();
-        }
         _api_info_status = 2;
+        Serial.println("SetValue processing completed, retrying API fetch with new settings...");
+        success = api.getApiInfo(_api_info, _api_host, _qweather_loc, _screen_index);
+    } else {
+        Serial.println("Failed to fetch API info from: " + _api_host);
+        success = api.getApiInfo(_api_info, _api_host_backup, _qweather_loc, _screen_index);
+    }
+    
+    if (success) {
+        _api_info_status = 1;
+        _weather = _api_info.weather;
+        _daily_words = _api_info.dailyWords;
+        Serial.println("_daily_words size: " + String(_daily_words.size()));
+        _bili = _api_info.bili;
+        _holiday = _api_info.holiday;
     } else{
         _api_info_status = 2;
     }
@@ -151,6 +155,7 @@ void api_info_exec(int status) {
     _api_host = c.api_host;
     _api_host_backup = c.backup_host;
     _qweather_loc = c.qweather_loc;
+    _screen_index = c.screen_index;
 
     if (_qweather_loc.length() == 0) {
         Serial.println("Qweather key/locationID invalid.");
